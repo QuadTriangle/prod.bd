@@ -1,0 +1,23 @@
+{
+  "name": "prod-bd-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start:dev": "npm run dev",
+    "start": "wrangler dev",
+    "cf-typegen": "wrangler types",
+    "db:create": "npx wrangler d1 create prod-bd-db",
+    "db:init": "wrangler d1 execute prod-bd-db --local --file=src/schema.sql",
+    "db:push": "wrangler d1 execute prod-bd-db --remote --file=src/schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "typescript": "^5.6.2",
+    "wrangler": "^4.60.0"
+  },
+  "dependencies": {
+    "hono": "^4.6.3"
+  }
+}

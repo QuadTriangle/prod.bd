@@ -1,0 +1,50 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "prod-bd-worker",
+    "main": "src/index.ts",
+    "compatibility_date": "2026-01-20",
+    "compatibility_flags": [
+        "nodejs_compat"
+    ],
+    // Durable Object for managing Tunnel connections
+    "durable_objects": {
+        "bindings": [
+            {
+                "name": "TUNNEL_DO",
+                "class_name": "TunnelDO"
+            }
+        ]
+    },
+    // Migrations for Durable Objects
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": [
+                "TunnelDO"
+            ]
+        }
+    ],
+    // D1 Database for storing client ID <-> subdomains
+    "d1_databases": [
+        {
+            "binding": "prod_bd_db",
+            "database_name": "prod-bd-db",
+            "database_id": "e1ef1b59-87fc-41a5-9ebc-dc160db1bdad"
+        }
+    ],
+    // Observability
+    "observability": {
+        "enabled": true
+    },
+    "routes": [
+        {
+            "pattern": "tunnel.prod.bd",
+            "custom_domain": true,
+            "zone_name": "prod.bd"
+        },
+        {
+            "pattern": "*.prod.bd/*",
+            "zone_name": "prod.bd"
+        }
+    ]
+}
