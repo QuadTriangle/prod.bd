@@ -4,93 +4,98 @@ import { TunnelDO } from "./tunnel-do";
 export { TunnelDO };
 
 interface Env {
-	DB: D1Database;
-	TUNNEL_DO: DurableObjectNamespace;
+    prod_bd_db: D1Database;
+    TUNNEL_DO: DurableObjectNamespace;
 }
 
 const app = new Hono<{ Bindings: Env }>();
 
 // Generate a random subdomain
 function generateSubdomain(): string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-	let result = "";
-	for (let i = 0; i < 8; i++) {
-		result += chars.charAt(Math.floor(Math.random() * chars.length));
-	}
-	return result;
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < 8; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
 }
 
 app.post("/api/register", async (c) => {
-	const body = await c.req.json<{ clientId: string; ports: number[] }>();
-	const { clientId, ports } = body;
+    try {
+        const body = await c.req.json<{ clientId: string; ports: number[] }>();
+        const { clientId, ports } = body;
 
-	if (!clientId || !ports || !Array.isArray(ports)) {
-		return c.json({ error: "Invalid request" }, 400);
-	}
-
-	const results: Record<number, string> = {};
-
-    // Check existing mapping
-    const { results: existing } = await c.env.DB.prepare(
-        "SELECT port, subdomain FROM tunnels WHERE client_id = ?"
-    ).bind(clientId).all<{ port: number; subdomain: string }>();
-
-    const existingMap = new Map<number, string>();
-    if (existing) {
-        for (const row of existing) {
-            existingMap.set(row.port, row.subdomain);
-        }
-    }
-
-	for (const port of ports) {
-        if (existingMap.has(port)) {
-            results[port] = existingMap.get(port)!;
-            continue;
+        if (!clientId || !ports || !Array.isArray(ports)) {
+            return c.json({ error: "Invalid request" }, 400);
         }
 
-        // Generate new subdomain
-		let subdomain = generateSubdomain();
-        let retries = 5;
-        while(retries > 0) {
-            try {
-                await c.env.DB.prepare(
-                    "INSERT INTO tunnels (subdomain, client_id, port) VALUES (?, ?, ?)"
-                ).bind(subdomain, clientId, port).run();
-                break;
-            } catch (e) {
-                // assume collision
-                subdomain = generateSubdomain();
-                retries--;
+        const results: Record<number, string> = {};
+
+        // Ensure client exists first (tunnels has FK to clients)
+        await c.env.prod_bd_db.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
+
+        // Check existing mapping
+        const { results: existing } = await c.env.prod_bd_db.prepare(
+            "SELECT port, subdomain FROM tunnels WHERE client_id = ?"
+        ).bind(clientId).all<{ port: number; subdomain: string }>();
+
+        const existingMap = new Map<number, string>();
+        if (existing) {
+            for (const row of existing) {
+                existingMap.set(row.port, row.subdomain);
             }
         }
-        if (retries === 0) {
-            return c.json({ error: "Failed to allocate subdomain" }, 500);
+
+        for (const port of ports) {
+            if (existingMap.has(port)) {
+                results[port] = existingMap.get(port)!;
+                continue;
+            }
+
+            // Generate new subdomain
+            let subdomain = generateSubdomain();
+            let retries = 5;
+            while (retries > 0) {
+                try {
+                    await c.env.prod_bd_db.prepare(
+                        "INSERT INTO tunnels (subdomain, client_id, port) VALUES (?, ?, ?)"
+                    ).bind(subdomain, clientId, port).run();
+                    break;
+                } catch (e) {
+                    console.error(`Insert tunnel failed (retries left: ${retries - 1}):`, e);
+                    subdomain = generateSubdomain();
+                    retries--;
+                }
+            }
+            if (retries === 0) {
+                return c.json({ error: "Failed to allocate subdomain" }, 500);
+            }
+
+            results[port] = subdomain;
         }
 
-		results[port] = subdomain;
-	}
-
-    // Ensure client exists
-    await c.env.DB.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
-
-	return c.json({ tunnels: results });
+        return c.json({ tunnels: results });
+    } catch (e) {
+        console.error("Register failed:", e);
+        return c.json({ error: String(e) }, 500);
+    }
 });
 
 app.get("/_tunnel", async (c) => {
-	const upgradeHeader = c.req.header("Upgrade");
-	if (!upgradeHeader || upgradeHeader !== "websocket") {
-		return c.text("Expected Upgrade: websocket", 426);
-	}
+    const upgradeHeader = c.req.header("Upgrade");
+    if (!upgradeHeader || upgradeHeader !== "websocket") {
+        return c.text("Expected Upgrade: websocket", 426);
+    }
 
-	const subdomain = c.req.query("subdomain");
-	if (!subdomain) {
-		return c.text("Missing subdomain", 400);
-	}
+    const subdomain = c.req.query("subdomain");
+    if (!subdomain) {
+        return c.text("Missing subdomain", 400);
+    }
 
-	const id = c.env.TUNNEL_DO.idFromName(subdomain);
-	const stub = c.env.TUNNEL_DO.get(id);
+    const id = c.env.TUNNEL_DO.idFromName(subdomain);
+    const stub = c.env.TUNNEL_DO.get(id);
 
-	return stub.fetch(c.req.raw);
+    return stub.fetch(c.req.raw);
 });
 
 // Wildcard handler for incoming traffic

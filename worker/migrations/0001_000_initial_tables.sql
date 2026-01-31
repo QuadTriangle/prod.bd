@@ -1,3 +1,5 @@
+-- Migration number: 0001 	 2026-02-10T07:41:28.364Z
+
 CREATE TABLE IF NOT EXISTS clients (
     id TEXT PRIMARY KEY,
     created_at INTEGER DEFAULT (unixepoch())

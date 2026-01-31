@@ -50,7 +50,7 @@ func Register(clientID string, ports []int, workerBaseURL string) (map[int]strin
 	return res.Tunnels, nil
 }
 
-func StartTunnel(subdomain string, localPort int, workerBaseURL string) {
+func StartTunnel(subdomain string, localPort int, workerBaseURL string, done <-chan struct{}) {
 	u, _ := url.Parse(workerBaseURL)
 	scheme := "wss"
 	if u.Scheme == "http" {
@@ -61,15 +61,26 @@ func StartTunnel(subdomain string, localPort int, workerBaseURL string) {
 
 	// Retry loop
 	for {
+		select {
+		case <-done:
+			log.Printf("Tunnel %s shutting down", subdomain)
+			return
+		default:
+		}
+
 		log.Printf("Connecting to %s (port %d)...", subdomain, localPort)
-		if err := connectAndServe(wsURL, localPort); err != nil {
+		if err := connectAndServe(wsURL, localPort, done); err != nil {
 			log.Printf("Tunnel %s disconnected: %v. Retrying in 5s...", subdomain, err)
-			time.Sleep(5 * time.Second)
+			select {
+			case <-done:
+				return
+			case <-time.After(5 * time.Second):
+			}
 		}
 	}
 }
 
-func connectAndServe(wsURL string, localPort int) error {
+func connectAndServe(wsURL string, localPort int, done <-chan struct{}) error {
 	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		return err
@@ -77,6 +88,14 @@ func connectAndServe(wsURL string, localPort int) error {
 	defer c.Close()
 
 	log.Printf("Tunnel established for port %d", localPort)
+
+	// Close WebSocket when shutdown signal received
+	go func() {
+		<-done
+		c.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "shutdown"))
+		c.Close()
+	}()
 
 	// Thread-safe writer
 	var writeMutex sync.Mutex
@@ -92,7 +111,6 @@ func connectAndServe(wsURL string, localPort int) error {
 			return err
 		}
 
-		// Handle independently to avoid blocking the read loop
 		go func(msg []byte) {
 			var req types.TunnelRequest
 			if err := json.Unmarshal(msg, &req); err != nil {
@@ -100,18 +118,13 @@ func connectAndServe(wsURL string, localPort int) error {
 				return
 			}
 
-			// Proxy Request
 			resp, err := proxy.HandleRequest(req, localPort)
 			if err != nil {
 				log.Printf("Error handling request: %v", err)
-				// return error to tunnel?
+				return
 			}
 
-			// Send Response
 			if err := writeJSON(resp); err != nil {
-				// connection is probably dead
-				// we are in a goroutine. We can't easily break the main loop.
-				// The main loop will fail on next ReadMessage usually.
 				log.Printf("Error sending response: %v", err)
 			}
 		}(message)
