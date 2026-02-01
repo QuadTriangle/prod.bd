@@ -3,18 +3,13 @@ import { TunnelDO } from "./tunnel-do";
 
 export { TunnelDO };
 
-interface Env {
-    prod_bd_db: D1Database;
-    TUNNEL_DO: DurableObjectNamespace;
-}
-
 const app = new Hono<{ Bindings: Env }>();
 
 // Generate a random subdomain
 function generateSubdomain(): string {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     let result = "";
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return result;
@@ -32,10 +27,10 @@ app.post("/api/register", async (c) => {
         const results: Record<number, string> = {};
 
         // Ensure client exists first (tunnels has FK to clients)
-        await c.env.prod_bd_db.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
+        await c.env.DB.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
 
         // Check existing mapping
-        const { results: existing } = await c.env.prod_bd_db.prepare(
+        const { results: existing } = await c.env.DB.prepare(
             "SELECT port, subdomain FROM tunnels WHERE client_id = ?"
         ).bind(clientId).all<{ port: number; subdomain: string }>();
 
@@ -54,10 +49,10 @@ app.post("/api/register", async (c) => {
 
             // Generate new subdomain
             let subdomain = generateSubdomain();
-            let retries = 5;
+            let retries = 10;
             while (retries > 0) {
                 try {
-                    await c.env.prod_bd_db.prepare(
+                    await c.env.DB.prepare(
                         "INSERT INTO tunnels (subdomain, client_id, port) VALUES (?, ?, ?)"
                     ).bind(subdomain, clientId, port).run();
                     break;

@@ -1,3 +1,7 @@
+packages:
+  - worker
+  - web
+
 onlyBuiltDependencies:
   - esbuild
   - sharp

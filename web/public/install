@@ -1,0 +1,73 @@
+#!/bin/bash
+set -e
+
+# prod.bd installer script
+# Downloads the latest release from GitHub
+
+REPO="quadtriangle/prod.bd"
+INSTALL_DIR="/usr/local/bin"
+BINARY_NAME="prodbd"
+
+# Detect OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+    x86_64)
+        ARCH="amd64"
+        ;;
+    aarch64|arm64)
+        ARCH="arm64"
+        ;;
+    *)
+        echo "Unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+
+case "$OS" in
+    linux)
+        PLATFORM="linux"
+        ;;
+    darwin)
+        PLATFORM="darwin"
+        ;;
+    *)
+        echo "Unsupported OS: $OS"
+        exit 1
+        ;;
+esac
+
+echo "Detected platform: $PLATFORM-$ARCH"
+
+# Get latest release URL
+RELEASE_URL="https://api.github.com/repos/$REPO/releases/latest"
+echo "Fetching latest release..."
+
+DOWNLOAD_URL=$(curl -s "$RELEASE_URL" | grep "browser_download_url.*$BINARY_NAME-$PLATFORM-$ARCH" | cut -d '"' -f 4)
+
+if [ -z "$DOWNLOAD_URL" ]; then
+    echo "Error: Could not find release for $PLATFORM-$ARCH"
+    exit 1
+fi
+
+echo "Downloading from: $DOWNLOAD_URL"
+
+# Download to temp file
+TMP_FILE=$(mktemp)
+curl -L -o "$TMP_FILE" "$DOWNLOAD_URL"
+
+# Make executable
+chmod +x "$TMP_FILE"
+
+# Install (may require sudo)
+if [ -w "$INSTALL_DIR" ]; then
+    mv "$TMP_FILE" "$INSTALL_DIR/$BINARY_NAME"
+else
+    echo "Installing to $INSTALL_DIR (requires sudo)..."
+    sudo mv "$TMP_FILE" "$INSTALL_DIR/$BINARY_NAME"
+fi
+
+echo "✓ $BINARY_NAME installed successfully to $INSTALL_DIR/$BINARY_NAME"
+echo ""
+echo "Run '$BINARY_NAME 3000' to get started!"

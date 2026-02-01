@@ -1,0 +1,13 @@
+{
+  "name": "prod-bd",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:worker": "pnpm --filter prod-bd-worker dev",
+    "dev:web": "pnpm --filter prod-bd-web dev",
+    "build:worker": "pnpm --filter prod-bd-worker build",
+    "build:web": "pnpm --filter prod-bd-web build",
+    "deploy:worker": "pnpm --filter prod-bd-worker deploy",
+    "deploy:web": "pnpm --filter prod-bd-web build"
+  }
+}

@@ -1,0 +1,49 @@
+---
+const features = [
+  {
+    icon: "🚀",
+    title: "Instant Tunnels",
+    description: "Get a public URL in seconds. No signup required.",
+  },
+  {
+    icon: "🔒",
+    title: "Secure",
+    description: "End-to-end encrypted WebSocket connections.",
+  },
+  {
+    icon: "🎯",
+    title: "Deterministic URLs",
+    description: "Same subdomain for the same client and port.",
+  },
+  {
+    icon: "⚡",
+    title: "Fast",
+    description: "Built on Cloudflare Workers and Durable Objects.",
+  },
+  {
+    icon: "🆓",
+    title: "Open Source",
+    description: "MIT licensed. Self-host or use our service.",
+  },
+  {
+    icon: "🌍",
+    title: "Global",
+    description: "Low latency worldwide with Cloudflare's network.",
+  },
+];
+---
+
+<section class="py-20 bg-white">
+  <div class="max-w-6xl mx-auto px-6">
+    <h2 class="text-4xl font-bold text-center mb-12">Features</h2>
+    <div class="grid md:grid-cols-3 gap-8">
+      {features.map((feature) => (
+        <div class="text-center">
+          <div class="text-5xl mb-4">{feature.icon}</div>
+          <h3 class="text-xl font-semibold mb-2">{feature.title}</h3>
+          <p class="text-gray-600">{feature.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
