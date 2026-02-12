@@ -16,7 +16,10 @@ interface TunnelResponse {
 }
 
 export class TunnelDO extends DurableObject {
-    private webSocket: WebSocket | null = null;
+    private tunnels = new Map<string, WebSocket>();
+    // Reverse mapping for cleanup: WebSocket -> Subdomain
+    private wsToSubdomain = new Map<WebSocket, string>();
+
     private pendingRequests = new Map<
         string,
         { resolve: (resp: TunnelResponse) => void; reject: (err: Error) => void }
@@ -32,20 +35,41 @@ export class TunnelDO extends DurableObject {
             return this.handleWebSocketUpgrade(request);
         }
 
+        const url = new URL(request.url);
+        const hostname = url.hostname;
+        const subdomain = hostname.split(".")[0];
+
         // Handle incoming HTTP request (Visitor)
-        if (this.webSocket && this.webSocket.readyState === WebSocket.OPEN) {
-            return this.proxyRequestToTunnel(request);
+        const ws = this.tunnels.get(subdomain);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            return this.proxyRequestToTunnel(request, ws);
         }
 
         return new Response("Tunnel not connected", { status: 502 });
     }
 
     private async handleWebSocketUpgrade(request: Request): Promise<Response> {
+        const url = new URL(request.url);
+        const subdomain = url.searchParams.get("subdomain");
+
+        if (!subdomain) {
+            return new Response("Missing subdomain", { status: 400 });
+        }
+
         const pair = new WebSocketPair();
         const [client, server] = [pair[0], pair[1]];
 
         this.ctx.acceptWebSocket(server);
-        this.webSocket = server;
+
+        // If there was an existing connection for this subdomain, close it
+        const existing = this.tunnels.get(subdomain);
+        if (existing) {
+            existing.close(1000, "New connection replacing old one");
+            this.wsToSubdomain.delete(existing);
+        }
+
+        this.tunnels.set(subdomain, server);
+        this.wsToSubdomain.set(server, subdomain);
 
         return new Response(null, {
             status: 101,
@@ -69,19 +93,23 @@ export class TunnelDO extends DurableObject {
     }
 
     async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-        console.log("Tunnel closed:", code, reason);
-        this.webSocket = null;
-        for (const [id, { reject }] of this.pendingRequests) {
-            reject(new Error("Tunnel disconnected"));
+        const subdomain = this.wsToSubdomain.get(ws);
+        console.log(`Tunnel closed for ${subdomain || "unknown"}:`, code, reason);
+
+        if (subdomain) {
+            this.tunnels.delete(subdomain);
+            this.wsToSubdomain.delete(ws);
         }
-        this.pendingRequests.clear();
+
+        // TODO: Reject all pending requests for this tunnel
     }
 
     async webSocketError(ws: WebSocket, error: unknown) {
-        console.error("Tunnel error:", error);
+        const subdomain = this.wsToSubdomain.get(ws);
+        console.error(`Tunnel error for ${subdomain || "unknown"}:`, error);
     }
 
-    private async proxyRequestToTunnel(request: Request): Promise<Response> {
+    private async proxyRequestToTunnel(request: Request, ws: WebSocket): Promise<Response> {
         const reqId = crypto.randomUUID();
         const url = new URL(request.url);
 
@@ -152,10 +180,11 @@ export class TunnelDO extends DurableObject {
                 },
             });
 
-            if (this.webSocket) {
-                this.webSocket.send(JSON.stringify(tunnelReq));
-            } else {
+            try {
+                ws.send(JSON.stringify(tunnelReq));
+            } catch (e) {
                 this.pendingRequests.delete(reqId);
+                clearTimeout(timeout);
                 resolve(new Response("Tunnel disconnected during request", { status: 502 }));
             }
         });

@@ -43,7 +43,6 @@ func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse
 		}, nil
 	}
 
-	// Set multi-value headers
 	for k, vals := range req.Headers {
 		httpReq.Header[k] = vals
 	}

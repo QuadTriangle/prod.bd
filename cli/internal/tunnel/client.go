@@ -15,9 +15,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Allow swapping for testing
-var WorkerURL = "https://tunnel.prod.bd"
-
 func Register(clientID string, ports []int, workerBaseURL string) (map[int]string, error) {
 	reqBody := types.RegisterRequest{
 		ClientID: clientID,

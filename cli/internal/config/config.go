@@ -9,6 +9,15 @@ import (
 	"strings"
 )
 
+const DefaultWorkerURL = "https://tunnel.prod.bd"
+
+func GetWorkerURL() string {
+	if v := os.Getenv("WORKER_URL"); v != "" {
+		return v
+	}
+	return DefaultWorkerURL
+}
+
 func GetClientID() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {

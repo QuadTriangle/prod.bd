@@ -87,7 +87,8 @@ app.get("/_tunnel", async (c) => {
         return c.text("Missing subdomain", 400);
     }
 
-    const id = c.env.TUNNEL_DO.idFromName(subdomain);
+    // TODO: use client id to create a dedicated DO
+    const id = c.env.TUNNEL_DO.idFromName("temp_global_tunnel");
     const stub = c.env.TUNNEL_DO.get(id);
 
     return stub.fetch(c.req.raw);
@@ -102,11 +103,12 @@ app.all("*", async (c) => {
     // assuming the very first part of the hostname is the subdomain.
     const subdomain = hostname.split(".")[0];
 
-    if (subdomain === "www" || subdomain === "api" || !subdomain) {
+    if (subdomain === "www" || subdomain === "tunnel" || !subdomain) {
         return c.text("Not Found", 404);
     }
 
-    const id = c.env.TUNNEL_DO.idFromName(subdomain);
+    // TODO: use client id to create a dedicated DO
+    const id = c.env.TUNNEL_DO.idFromName("temp_global_tunnel");
     const stub = c.env.TUNNEL_DO.get(id);
 
     return stub.fetch(c.req.raw);

@@ -12,8 +12,6 @@ import (
 	"syscall"
 )
 
-const DefaultWorkerURL = "https://tunnel.prod.bd"
-
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Printf("Usage: %s <port> [port...]\n", os.Args[0])
@@ -29,11 +27,7 @@ func main() {
 		ports = append(ports, port)
 	}
 
-	workerURL := os.Getenv("WORKER_URL")
-	if workerURL == "" {
-		workerURL = DefaultWorkerURL
-	}
-	tunnel.WorkerURL = workerURL
+	workerURL := config.GetWorkerURL()
 
 	// 1. Get Client ID
 	clientID, err := config.GetClientID()
