@@ -8,26 +8,26 @@
     <div class="bg-white rounded-lg shadow-lg p-8">
       <div class="flex gap-4 mb-6 border-b">
         <button
-          class="tab-button px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
-          data-tab="macos"
-        >
-          macOS
-        </button>
-        <button
-          class="tab-button px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
+          class="tab-button cursor-pointer border-green-600 px-6 py-3 font-semibold hover:text-gray-900 border-b-2 "
           data-tab="linux"
         >
           Linux
         </button>
         <button
-          class="tab-button px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
+          class="tab-button cursor-pointer px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
+          data-tab="macos"
+        >
+          macOS
+        </button>
+        <button
+          class="tab-button cursor-pointer px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
           data-tab="windows"
         >
           Windows
         </button>
       </div>
 
-      <div class="tab-content" data-content="macos">
+      <div class="tab-content hidden" data-content="macos">
         <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
           <code>curl -fsSL https://prod.bd/install | bash</code>
         </div>
@@ -39,7 +39,7 @@
         </div>
       </div>
 
-      <div class="tab-content hidden" data-content="linux">
+      <div class="tab-content" data-content="linux">
         <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
           <code>curl -fsSL https://prod.bd/install | bash</code>
         </div>

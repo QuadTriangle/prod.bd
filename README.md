@@ -38,8 +38,8 @@ prodbd 3000 8080 5173
 
 You'll get URLs like:
 ```
-http://localhost:3000  ->  https://abc12345.prod.bd
-http://localhost:8080  ->  https://def67890.prod.bd
+http://localhost:3000  ->  https://abc.prod.bd
+http://localhost:8080  ->  https://xyz.prod.bd
 ```
 
 ## Development
