@@ -96,7 +96,7 @@ func connectAndServe(wsURL string, localPort int, done <-chan struct{}) error {
 
 	// Thread-safe writer
 	var writeMutex sync.Mutex
-	writeJSON := func(v interface{}) error {
+	writeJSON := func(v any) error {
 		writeMutex.Lock()
 		defer writeMutex.Unlock()
 		return c.WriteJSON(v)
@@ -124,33 +124,69 @@ func connectAndServe(wsURL string, localPort int, done <-chan struct{}) error {
 		}
 	}()
 
+	// WebSocket relay for visitor WS sessions
+	wsRelay := proxy.NewWSRelay(localPort, writeJSON)
+
+	// Main read loop
 	for {
 		_, message, err := c.ReadMessage()
 		if err != nil {
 			return err
 		}
 
-		// Ignore keepalive pong from server
 		if string(message) == "pong" {
 			continue
 		}
 
-		go func(msg []byte) {
-			var req types.TunnelRequest
-			if err := json.Unmarshal(msg, &req); err != nil {
-				log.Printf("Error unmarshaling request: %v", err)
-				return
-			}
+		go handleMessage(message, localPort, writeJSON, wsRelay)
+	}
+}
 
-			resp, err := proxy.HandleRequest(req, localPort)
-			if err != nil {
-				log.Printf("Error handling request: %v", err)
-				return
-			}
+// handleMessage routes an incoming tunnel message by its type field.
+func handleMessage(raw []byte, localPort int, writeJSON func(any) error, wsRelay *proxy.WSRelay) {
+	// Peek at the type field to route without fully unmarshaling into the wrong struct
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		log.Printf("Error unmarshaling message: %v", err)
+		return
+	}
 
-			if err := writeJSON(resp); err != nil {
-				log.Printf("Error sending response: %v", err)
-			}
-		}(message)
+	switch envelope.Type {
+	case types.TypeHTTPRequest:
+		var req types.TunnelRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			log.Printf("Error unmarshaling HTTP request: %v", err)
+			return
+		}
+		resp := proxy.HandleRequest(req, localPort)
+		if err := writeJSON(resp); err != nil {
+			log.Printf("Error sending HTTP response: %v", err)
+		}
+
+	case types.TypeWSOpen:
+		var msg types.WSOpen
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("Error unmarshaling ws-open: %v", err)
+			return
+		}
+		wsRelay.HandleOpen(msg)
+
+	case types.TypeWSFrame:
+		var msg types.WSFrame
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("Error unmarshaling ws-frame: %v", err)
+			return
+		}
+		wsRelay.HandleFrame(msg)
+
+	case types.TypeWSClose:
+		var msg types.WSClose
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("Error unmarshaling ws-close: %v", err)
+			return
+		}
+		wsRelay.HandleClose(msg)
 	}
 }

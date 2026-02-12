@@ -1,23 +1,47 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+    TYPE_WS_OPEN, TYPE_WS_FRAME, TYPE_WS_CLOSE,
+    type WSFrameMessage, type WSCloseMessage,
+    collectHeaders, encodeBase64,
+    forwardVisitorFrame, deliverFrameToVisitor,
+} from "./ws-proxy";
+
+// --- HTTP tunnel protocol types ---
+const TYPE_HTTP_REQUEST = "http-request";
+const TYPE_HTTP_RESPONSE = "http-response";
 
 interface TunnelRequest {
+    type: string;
     id: string;
     method: string;
     path: string;
     headers: Record<string, string[]>;
-    body?: string; // Base64 encoded body
+    body?: string;
 }
 
 interface TunnelResponse {
+    type: string;
     id: string;
     status: number;
     headers: Record<string, string[]>;
-    body?: string; // Base64 encoded body
+    body?: string;
 }
+
+// --- WebSocket attachment types ---
+interface TunnelAttachment { subdomain: string }
+interface VisitorAttachment { visitorSessionId: string; subdomain: string }
+type WSAttachment = TunnelAttachment | VisitorAttachment;
+
+
+function isVisitor(a: WSAttachment): a is VisitorAttachment {
+    return "visitorSessionId" in a;
+}
+
 
 export class TunnelDO extends DurableObject {
     // Reconstructed after Worker hibernation to restore active WebSocket tunnels
     private tunnels = new Map<string, WebSocket>();
+    private visitorSockets = new Map<string, WebSocket>();
 
     private pendingRequests = new Map<
         string,
@@ -26,15 +50,16 @@ export class TunnelDO extends DurableObject {
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
-
-        // Auto-respond to ping/pong without active DO.
         this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
 
-        // Restore subdomain→WebSocket mappings from hibernated sockets
+        // Restore WebSocket mappings after hibernation
         this.ctx.getWebSockets().forEach((ws) => {
-            const attachment = ws.deserializeAttachment() as { subdomain: string } | null;
-            if (attachment?.subdomain) {
-                this.tunnels.set(attachment.subdomain, ws);
+            const att = ws.deserializeAttachment() as WSAttachment | null;
+            if (!att) return;
+            if (isVisitor(att)) {
+                this.visitorSockets.set(att.visitorSessionId, ws);
+            } else if (att.subdomain) {
+                this.tunnels.set(att.subdomain, ws);
             }
         });
     }
@@ -43,28 +68,37 @@ export class TunnelDO extends DurableObject {
         return this.tunnels.get(subdomain) ?? null;
     }
 
+    // ── Routing ──────────────────────────────────────────────
+
     async fetch(request: Request): Promise<Response> {
-        // Handle WebSocket Upgrade (CLI connecting)
-        if (request.headers.get("Upgrade") === "websocket") {
-            return this.handleWebSocketUpgrade(request);
-        }
-
-        // Handle incoming HTTP request (Visitor)
         const url = new URL(request.url);
-        const subdomain = url.hostname.split(".")[0];
+        const isUpgrade = request.headers.get("Upgrade") === "websocket";
 
-        const ws = this.getTunnelSocket(subdomain);
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            return this.proxyRequestToTunnel(request, ws);
+        // CLI tunnel connection
+        if (url.pathname === "/_tunnel" && isUpgrade) {
+            return this.handleTunnelUpgrade(request);
         }
 
-        return new Response("Tunnel not connected", { status: 502 });
+        const subdomain = url.hostname.split(".")[0];
+        const tunnelWs = this.getTunnelSocket(subdomain);
+        if (!tunnelWs || tunnelWs.readyState !== WebSocket.OPEN) {
+            return new Response("Tunnel not connected", { status: 502 });
+        }
+
+        // Visitor WebSocket upgrade
+        if (isUpgrade) {
+            return this.handleVisitorUpgrade(request, tunnelWs, subdomain);
+        }
+
+        // Regular HTTP request
+        return this.proxyHTTPRequest(request, tunnelWs);
     }
 
-    private async handleWebSocketUpgrade(request: Request): Promise<Response> {
+    // ── CLI tunnel WebSocket upgrade ─────────────────────────
+
+    private async handleTunnelUpgrade(request: Request): Promise<Response> {
         const url = new URL(request.url);
         const subdomain = url.searchParams.get("subdomain");
-
         if (!subdomain) {
             return new Response("Missing subdomain", { status: 400 });
         }
@@ -72,7 +106,6 @@ export class TunnelDO extends DurableObject {
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
 
-        // Close any existing connection for this subdomain
         const existing = this.tunnels.get(subdomain);
         if (existing) {
             existing.close(1000, "New connection replacing old one");
@@ -80,125 +113,175 @@ export class TunnelDO extends DurableObject {
         }
 
         this.ctx.acceptWebSocket(server);
-
-        // Persist subdomain on the WebSocket so it survives hibernation
-        server.serializeAttachment({ subdomain });
+        server.serializeAttachment({ subdomain } as TunnelAttachment);
         this.tunnels.set(subdomain, server);
 
-        return new Response(null, {
-            status: 101,
-            webSocket: client,
-        });
+        return new Response(null, { status: 101, webSocket: client });
     }
 
-    async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-        if (typeof message !== "string") return;
+    // ── Visitor WebSocket upgrade (proxied through tunnel) ───
 
-        try {
-            const response: TunnelResponse = JSON.parse(message);
-            const pending = this.pendingRequests.get(response.id);
-            if (pending) {
-                pending.resolve(response);
-                this.pendingRequests.delete(response.id);
+    private async handleVisitorUpgrade(
+        request: Request, tunnelWs: WebSocket, subdomain: string
+    ): Promise<Response> {
+        const sessionId = crypto.randomUUID();
+        const url = new URL(request.url);
+
+        // Tell CLI to open a local WebSocket
+        tunnelWs.send(JSON.stringify({
+            type: TYPE_WS_OPEN,
+            id: sessionId,
+            path: url.pathname + url.search,
+            headers: collectHeaders(request),
+        }));
+
+        const pair = new WebSocketPair();
+        const [client, server] = Object.values(pair);
+
+        this.ctx.acceptWebSocket(server);
+        server.serializeAttachment({ visitorSessionId: sessionId, subdomain } as VisitorAttachment);
+        this.visitorSockets.set(sessionId, server);
+
+        return new Response(null, { status: 101, webSocket: client });
+    }
+
+    // ── Hibernation handlers ─────────────────────────────────
+
+    async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+        const att = ws.deserializeAttachment() as WSAttachment | null;
+        if (!att) return;
+
+        // Visitor → forward frame to CLI tunnel
+        if (isVisitor(att)) {
+            const tunnelWs = this.getTunnelSocket(att.subdomain);
+            if (tunnelWs && tunnelWs.readyState === WebSocket.OPEN) {
+                forwardVisitorFrame(att.visitorSessionId, message, tunnelWs);
             }
-            // If no pending request found (e.g. after hibernation wake-up),
-            // the response is silently dropped — the original HTTP caller
-            // will have already timed out.
+            return;
+        }
+
+        // CLI tunnel → route by message type
+        if (typeof message !== "string") return;
+        try {
+            const msg = JSON.parse(message);
+            this.handleTunnelMessage(msg);
         } catch (e) {
-            console.error("Failed to parse tunnel response:", e);
+            console.error("Failed to parse tunnel message:", e);
+        }
+    }
+
+    private handleTunnelMessage(msg: any) {
+        switch (msg.type) {
+            case TYPE_HTTP_RESPONSE: {
+                const pending = this.pendingRequests.get(msg.id);
+                if (pending) {
+                    pending.resolve(msg as TunnelResponse);
+                    this.pendingRequests.delete(msg.id);
+                }
+                break;
+            }
+            case TYPE_WS_FRAME: {
+                const visitor = this.visitorSockets.get(msg.id);
+                if (visitor && visitor.readyState === WebSocket.OPEN) {
+                    deliverFrameToVisitor(msg as WSFrameMessage, visitor);
+                }
+                break;
+            }
+            case TYPE_WS_CLOSE: {
+                const visitor = this.visitorSockets.get(msg.id);
+                if (visitor) {
+                    const cm = msg as WSCloseMessage;
+                    try { visitor.close(cm.code || 1000, cm.reason || ""); } catch { }
+                    this.visitorSockets.delete(msg.id);
+                }
+                break;
+            }
         }
     }
 
     async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean) {
-        // Complete the close handshake; guard against double-close after hibernation wake-up
-        try {
-            ws.close(code, reason);
-        } catch {
-            // Already closed — safe to ignore
+        try { ws.close(code, reason); } catch { }
+
+        const att = ws.deserializeAttachment() as WSAttachment | null;
+        if (!att) return;
+
+        // Visitor disconnected → notify CLI
+        if (isVisitor(att)) {
+            this.visitorSockets.delete(att.visitorSessionId);
+            const tunnelWs = this.getTunnelSocket(att.subdomain);
+            if (tunnelWs && tunnelWs.readyState === WebSocket.OPEN) {
+                tunnelWs.send(JSON.stringify({
+                    type: TYPE_WS_CLOSE, id: att.visitorSessionId, code, reason,
+                }));
+            }
+            return;
         }
 
-        const attachment = ws.deserializeAttachment() as { subdomain: string } | null;
-        if (attachment?.subdomain) {
-            this.tunnels.delete(attachment.subdomain);
+        // CLI tunnel disconnected → clean up everything for this subdomain
+        const sub = att.subdomain;
+        this.tunnels.delete(sub);
+
+        for (const [id, pending] of this.pendingRequests) {
+            if (pending.subdomain === sub) {
+                pending.reject(new Error("Tunnel connection closed"));
+                this.pendingRequests.delete(id);
+            }
         }
 
-        // Reject only pending requests that belong to this tunnel
-        // (pendingRequests is empty after hibernation wake-up, so this is a no-op then)
-        const sub = attachment?.subdomain;
-        if (sub) {
-            for (const [id, pending] of this.pendingRequests) {
-                if (pending.subdomain === sub) {
-                    pending.reject(new Error("Tunnel connection closed"));
-                    this.pendingRequests.delete(id);
-                }
+        for (const [sessionId, visitor] of this.visitorSockets) {
+            const va = visitor.deserializeAttachment() as VisitorAttachment | null;
+            if (va && va.subdomain === sub) {
+                try { visitor.close(1001, "Tunnel disconnected"); } catch { }
+                this.visitorSockets.delete(sessionId);
             }
         }
     }
 
     async webSocketError(ws: WebSocket, error: unknown) {
-        const attachment = ws.deserializeAttachment() as { subdomain: string } | null;
-        const subdomain = attachment?.subdomain || "unknown";
-        console.error(`Tunnel error for ${subdomain}:`, error);
+        const att = ws.deserializeAttachment() as WSAttachment | null;
+        if (!att) return;
 
-        // Clean up the tunnel mapping on error
-        if (attachment?.subdomain) {
-            this.tunnels.delete(attachment.subdomain);
+        if (isVisitor(att)) {
+            console.error(`Visitor WS error for session ${att.visitorSessionId}:`, error);
+            this.visitorSockets.delete(att.visitorSessionId);
+            try { ws.close(1011, "WebSocket error"); } catch { }
+            return;
+        }
 
-            // Reject pending requests for this tunnel
-            for (const [id, pending] of this.pendingRequests) {
-                if (pending.subdomain === attachment.subdomain) {
-                    pending.reject(new Error("WebSocket error"));
-                    this.pendingRequests.delete(id);
-                }
+        const sub = att.subdomain;
+        console.error(`Tunnel error for ${sub}:`, error);
+        this.tunnels.delete(sub);
+
+        for (const [id, pending] of this.pendingRequests) {
+            if (pending.subdomain === sub) {
+                pending.reject(new Error("WebSocket error"));
+                this.pendingRequests.delete(id);
             }
         }
 
-        try {
-            ws.close(1011, "WebSocket error");
-        } catch {
-            // Already closed
-        }
+        try { ws.close(1011, "WebSocket error"); } catch { }
     }
 
-    private async proxyRequestToTunnel(request: Request, ws: WebSocket): Promise<Response> {
+    // ── HTTP request proxy ───────────────────────────────────
+
+    private async proxyHTTPRequest(request: Request, ws: WebSocket): Promise<Response> {
         const reqId = crypto.randomUUID();
         const url = new URL(request.url);
         const subdomain = url.hostname.split(".")[0];
 
-        // Convert Headers to multi-value map
-        const headers: Record<string, string[]> = {};
-        for (const [key, value] of request.headers) {
-            // Headers.entries() joins multi-value with ", " — split them back
-            if (headers[key]) {
-                headers[key].push(value);
-            } else {
-                headers[key] = [value];
-            }
-        }
-
         const tunnelReq: TunnelRequest = {
+            type: TYPE_HTTP_REQUEST,
             id: reqId,
             method: request.method,
             path: url.pathname + url.search,
-            headers,
+            headers: collectHeaders(request),
         };
 
-        const hasBody = request.method !== "GET" && request.method !== "HEAD";
-        if (hasBody) {
-            const arrayBuffer = await request.arrayBuffer();
-            // Safe base64 encoding that handles large bodies
-            const bytes = new Uint8Array(arrayBuffer);
-            let binary = "";
-            const chunkSize = 8192;
-            for (let i = 0; i < bytes.length; i += chunkSize) {
-                const chunk = bytes.subarray(i, i + chunkSize);
-                binary += String.fromCharCode(...chunk);
-            }
-            tunnelReq.body = btoa(binary);
+        if (request.method !== "GET" && request.method !== "HEAD") {
+            tunnelReq.body = encodeBase64(await request.arrayBuffer());
         }
 
         return new Promise<Response>((resolve) => {
-            // Timeout after 30s (aligned with CLI proxy timeout)
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(reqId);
                 resolve(new Response("Gateway Timeout", { status: 504 }));
@@ -206,26 +289,22 @@ export class TunnelDO extends DurableObject {
 
             this.pendingRequests.set(reqId, {
                 subdomain,
-                resolve: (tunnelResp) => {
+                resolve: (resp) => {
                     clearTimeout(timeout);
-                    const body = tunnelResp.body
-                        ? Uint8Array.from(atob(tunnelResp.body), (c) => c.charCodeAt(0))
+                    const body = resp.body
+                        ? Uint8Array.from(atob(resp.body), (c) => c.charCodeAt(0))
                         : null;
 
-                    // Build response with multi-value headers
                     const respHeaders = new Headers();
-                    for (const [key, values] of Object.entries(tunnelResp.headers)) {
-                        for (const v of values) {
-                            respHeaders.append(key, v);
+                    if (resp.headers) {
+                        for (const [key, values] of Object.entries(resp.headers)) {
+                            for (const v of values) {
+                                respHeaders.append(key, v);
+                            }
                         }
                     }
 
-                    resolve(
-                        new Response(body, {
-                            status: tunnelResp.status,
-                            headers: respHeaders,
-                        })
-                    );
+                    resolve(new Response(body, { status: resp.status, headers: respHeaders }));
                 },
                 reject: (err) => {
                     clearTimeout(timeout);
@@ -235,7 +314,7 @@ export class TunnelDO extends DurableObject {
 
             try {
                 ws.send(JSON.stringify(tunnelReq));
-            } catch (e) {
+            } catch {
                 this.pendingRequests.delete(reqId);
                 clearTimeout(timeout);
                 resolve(new Response("Tunnel disconnected during request", { status: 502 }));

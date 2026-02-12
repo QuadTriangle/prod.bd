@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse, error) {
+func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		// Don't follow redirects, let the browser handle them
@@ -27,10 +27,11 @@ func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse
 		decoded, err := base64.StdEncoding.DecodeString(req.Body)
 		if err != nil {
 			return types.TunnelResponse{
+				Type:   types.TypeHTTPResponse,
 				ID:     req.ID,
 				Status: 502,
 				Body:   base64.StdEncoding.EncodeToString([]byte("Invalid Request Body")),
-			}, nil
+			}
 		}
 		body = bytes.NewReader(decoded)
 	}
@@ -38,15 +39,21 @@ func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse
 	httpReq, err := http.NewRequest(req.Method, targetURL, body)
 	if err != nil {
 		return types.TunnelResponse{
+			Type:   types.TypeHTTPResponse,
 			ID:     req.ID,
 			Status: 502,
 			Body:   base64.StdEncoding.EncodeToString([]byte("Failed to create request")),
-		}, nil
+		}
 	}
 
 	for k, vals := range req.Headers {
-		// fetch lowercase header to Go compatible header
 		canonical := http.CanonicalHeaderKey(k)
+		// If we forward Accept-Encoding, Go passes compressed bytes through
+		// raw, but Cloudflare's edge may strip Content-Encoding on the way
+		// back — leaving the browser with undecoded gzip bytes.
+		if canonical == "Accept-Encoding" {
+			continue
+		}
 		httpReq.Header[canonical] = vals
 	}
 
@@ -56,26 +63,31 @@ func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return types.TunnelResponse{
+			Type:   types.TypeHTTPResponse,
 			ID:     req.ID,
 			Status: 502,
-			Body:   base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("Failed to connect to local port %d: %v", localPort, err))),
-		}, nil
+			Body:   base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "Failed to connect to local port %d: %v", localPort, err)),
+		}
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return types.TunnelResponse{ID: req.ID, Status: 502}, nil
+		return types.TunnelResponse{Type: types.TypeHTTPResponse, ID: req.ID, Status: 502}
 	}
 
 	// Preserve all header values (multi-value)
 	headers := make(map[string][]string)
 	maps.Copy(headers, resp.Header)
+	// Body is already decompressed by Go's transport, so these are stale
+	delete(headers, "Content-Encoding")
+	delete(headers, "Content-Length")
 
 	return types.TunnelResponse{
+		Type:    types.TypeHTTPResponse,
 		ID:      req.ID,
 		Status:  resp.StatusCode,
 		Headers: headers,
 		Body:    base64.StdEncoding.EncodeToString(respBody),
-	}, nil
+	}
 }
