@@ -6,13 +6,41 @@ export { TunnelDO };
 const app = new Hono<{ Bindings: Env }>();
 
 // Generate a random subdomain
-function generateSubdomain(): string {
+function generateSubdomain(length: number): string {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     let result = "";
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < length; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return result;
+}
+
+async function allocateSubdomain(db: D1Database, clientId: string, port: number): Promise<string | null> {
+    const maxRetries = 10;
+    let subdomainLength = 4;
+    let retries = 0;
+
+    while (retries < maxRetries) {
+        const subdomain = generateSubdomain(subdomainLength);
+
+        const existing = await db.prepare(
+            "SELECT 1 FROM tunnels WHERE subdomain = ?"
+        ).bind(subdomain).first();
+
+        if (!existing) {
+            await db.prepare(
+                "INSERT INTO tunnels (subdomain, client_id, port) VALUES (?, ?, ?)"
+            ).bind(subdomain, clientId, port).run();
+            return subdomain;
+        }
+
+        retries++;
+        if (retries >= 4) {
+            subdomainLength++;
+        }
+    }
+
+    return null;
 }
 
 app.post("/api/register", async (c) => {
@@ -47,22 +75,8 @@ app.post("/api/register", async (c) => {
                 continue;
             }
 
-            // Generate new subdomain
-            let subdomain = generateSubdomain();
-            let retries = 10;
-            while (retries > 0) {
-                try {
-                    await c.env.DB.prepare(
-                        "INSERT INTO tunnels (subdomain, client_id, port) VALUES (?, ?, ?)"
-                    ).bind(subdomain, clientId, port).run();
-                    break;
-                } catch (e) {
-                    console.error(`Insert tunnel failed (retries left: ${retries - 1}):`, e);
-                    subdomain = generateSubdomain();
-                    retries--;
-                }
-            }
-            if (retries === 0) {
+            const subdomain = await allocateSubdomain(c.env.DB, clientId, port);
+            if (!subdomain) {
                 return c.json({ error: "Failed to allocate subdomain" }, 500);
             }
 
