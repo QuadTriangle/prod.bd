@@ -87,7 +87,7 @@ app.get("/_tunnel", async (c) => {
         return c.text("Missing subdomain", 400);
     }
 
-    // TODO: use client id to create a dedicated DO
+    // Single global DO for all tunnels
     const id = c.env.TUNNEL_DO.idFromName("temp_global_tunnel");
     const stub = c.env.TUNNEL_DO.get(id);
 
@@ -107,7 +107,7 @@ app.all("*", async (c) => {
         return c.text("Not Found", 404);
     }
 
-    // TODO: use client id to create a dedicated DO
+    // Single global DO for all tunnels
     const id = c.env.TUNNEL_DO.idFromName("temp_global_tunnel");
     const stub = c.env.TUNNEL_DO.get(id);
 

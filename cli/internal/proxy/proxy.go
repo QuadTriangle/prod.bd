@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"prodbd/internal/types"
 	"time"
@@ -44,7 +45,9 @@ func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse
 	}
 
 	for k, vals := range req.Headers {
-		httpReq.Header[k] = vals
+		// fetch lowercase header to Go compatible header
+		canonical := http.CanonicalHeaderKey(k)
+		httpReq.Header[canonical] = vals
 	}
 
 	// Many local dev servers check Host header
@@ -67,9 +70,7 @@ func HandleRequest(req types.TunnelRequest, localPort int) (types.TunnelResponse
 
 	// Preserve all header values (multi-value)
 	headers := make(map[string][]string)
-	for k, v := range resp.Header {
-		headers[k] = v
-	}
+	maps.Copy(headers, resp.Header)
 
 	return types.TunnelResponse{
 		ID:      req.ID,

@@ -101,11 +101,38 @@ func connectAndServe(wsURL string, localPort int, done <-chan struct{}) error {
 		defer writeMutex.Unlock()
 		return c.WriteJSON(v)
 	}
+	writeText := func(msg string) error {
+		writeMutex.Lock()
+		defer writeMutex.Unlock()
+		return c.WriteMessage(websocket.TextMessage, []byte(msg))
+	}
+
+	// Keepalive: ping every 30s to prevent idle disconnects
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := writeText("ping"); err != nil {
+					log.Printf("Keepalive ping failed: %v", err)
+					return
+				}
+			}
+		}
+	}()
 
 	for {
 		_, message, err := c.ReadMessage()
 		if err != nil {
 			return err
+		}
+
+		// Ignore keepalive pong from server
+		if string(message) == "pong" {
+			continue
 		}
 
 		go func(msg []byte) {
