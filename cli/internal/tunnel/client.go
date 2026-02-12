@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"prodbd/internal/hooks"
 	"prodbd/internal/proxy"
 	"prodbd/internal/types"
 	"sync"
@@ -15,11 +16,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func Register(clientID string, ports []int, workerBaseURL string) (map[int]string, error) {
+func Register(clientID string, ports []int, workerBaseURL string, workerConfig map[string]any) (map[int]string, error) {
 	reqBody := types.RegisterRequest{
 		ClientID: clientID,
 		Ports:    ports,
+		Config:   workerConfig,
 	}
+
 	data, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
@@ -47,7 +50,7 @@ func Register(clientID string, ports []int, workerBaseURL string) (map[int]strin
 	return res.Tunnels, nil
 }
 
-func StartTunnel(subdomain string, localPort int, workerBaseURL string, done <-chan struct{}) {
+func StartTunnel(subdomain string, localPort int, workerBaseURL string, pipeline *hooks.Pipeline, done <-chan struct{}) {
 	u, _ := url.Parse(workerBaseURL)
 	scheme := "wss"
 	if u.Scheme == "http" {
@@ -66,7 +69,8 @@ func StartTunnel(subdomain string, localPort int, workerBaseURL string, done <-c
 		}
 
 		log.Printf("Connecting to %s (port %d)...", subdomain, localPort)
-		if err := connectAndServe(wsURL, localPort, done); err != nil {
+		if err := connectAndServe(wsURL, localPort, subdomain, pipeline, done); err != nil {
+			pipeline.NotifyDisconnect(subdomain, err)
 			log.Printf("Tunnel %s disconnected: %v. Retrying in 5s...", subdomain, err)
 			select {
 			case <-done:
@@ -77,13 +81,14 @@ func StartTunnel(subdomain string, localPort int, workerBaseURL string, done <-c
 	}
 }
 
-func connectAndServe(wsURL string, localPort int, done <-chan struct{}) error {
+func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *hooks.Pipeline, done <-chan struct{}) error {
 	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
 
+	pipeline.NotifyConnect(subdomain, localPort)
 	log.Printf("Tunnel established for port %d", localPort)
 
 	// Close WebSocket when shutdown signal received
@@ -138,12 +143,12 @@ func connectAndServe(wsURL string, localPort int, done <-chan struct{}) error {
 			continue
 		}
 
-		go handleMessage(message, localPort, writeJSON, wsRelay)
+		go handleMessage(message, localPort, subdomain, writeJSON, wsRelay, pipeline)
 	}
 }
 
 // handleMessage routes an incoming tunnel message by its type field.
-func handleMessage(raw []byte, localPort int, writeJSON func(any) error, wsRelay *proxy.WSRelay) {
+func handleMessage(raw []byte, localPort int, subdomain string, writeJSON func(any) error, wsRelay *proxy.WSRelay, pipeline *hooks.Pipeline) {
 	// Peek at the type field to route without fully unmarshaling into the wrong struct
 	var envelope struct {
 		Type string `json:"type"`
@@ -160,7 +165,10 @@ func handleMessage(raw []byte, localPort int, writeJSON func(any) error, wsRelay
 			log.Printf("Error unmarshaling HTTP request: %v", err)
 			return
 		}
+		pipeline.NotifyRequest(subdomain)
+		req = pipeline.RunBeforeProxy(req)
 		resp := proxy.HandleRequest(req, localPort)
+		resp = pipeline.RunAfterProxy(req, resp)
 		if err := writeJSON(resp); err != nil {
 			log.Printf("Error sending HTTP response: %v", err)
 		}

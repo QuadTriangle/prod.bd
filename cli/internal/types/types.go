@@ -29,8 +29,9 @@ type TunnelResponse struct {
 }
 
 type RegisterRequest struct {
-	ClientID string `json:"clientId"`
-	Ports    []int  `json:"ports"`
+	ClientID string         `json:"clientId"`
+	Ports    []int          `json:"ports"`
+	Config   map[string]any `json:"config,omitempty"`
 }
 
 type RegisterResponse struct {

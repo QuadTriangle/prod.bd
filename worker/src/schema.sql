@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS tunnels (
     subdomain TEXT NOT NULL UNIQUE,
     client_id TEXT NOT NULL,
     port INTEGER NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}'
     created_at INTEGER DEFAULT (unixepoch()),
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
