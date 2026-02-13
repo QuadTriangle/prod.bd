@@ -19,7 +19,7 @@ Secure HTTP tunnels to localhost. Expose your local development servers to the i
 curl -sSL https://prod.bd/install.sh | sh
 
 # windows
-irm https://prod.bd/install.ps1 | iex
+powershell -c "irm https://prod.bd/install.ps1 | iex"
 
 
 # Or download from releases

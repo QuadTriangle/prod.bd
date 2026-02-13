@@ -6,6 +6,9 @@ export default defineConfig({
   site: 'https://prod.bd',
   integrations: [react()],
   output: 'static',
+  build: {
+    inlineStylesheets: 'always'
+  },
   vite: {
     plugins: [tailwindcss()]
   }

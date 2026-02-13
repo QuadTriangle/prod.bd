@@ -1,4 +1,5 @@
 ---
+
 ---
 
 <section class="py-20 bg-gray-50">
@@ -8,7 +9,7 @@
     <div class="bg-white rounded-lg shadow-lg p-8">
       <div class="flex gap-4 mb-6 border-b">
         <button
-          class="tab-button cursor-pointer border-green-600 px-6 py-3 font-semibold hover:text-gray-900 border-b-2 "
+          class="tab-button cursor-pointer border-green-600 px-6 py-3 font-semibold hover:text-gray-900 border-b-2"
           data-tab="linux"
         >
           Linux
@@ -31,29 +32,53 @@
         <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
           <code>curl -fsSL https://prod.bd/install | bash</code>
         </div>
-        <p class="mt-4 text-gray-600">
-          Or install via Homebrew:
-        </p>
+        <p class="mt-4 text-gray-600">Or install via Go:</p>
         <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono mt-2">
-          <code>brew install prod</code>
+          <code
+            >go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code
+          >
         </div>
+        <p class="mt-4 text-gray-600">
+          Or download the binary directly from <a
+            href="https://github.com/quadtriangle/prod.bd/releases"
+            class="text-green-600 hover:underline">GitHub Releases</a
+          >
+        </p>
       </div>
 
       <div class="tab-content" data-content="linux">
         <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
           <code>curl -fsSL https://prod.bd/install | bash</code>
         </div>
+        <p class="mt-4 text-gray-600">Or install via Go:</p>
+        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono mt-2">
+          <code
+            >go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code
+          >
+        </div>
         <p class="mt-4 text-gray-600">
-          Or download the binary directly from <a href="https://github.com/quadtriangle/prod.bd/releases" class="text-green-600 hover:underline">GitHub Releases</a>
+          Or download the binary directly from <a
+            href="https://github.com/quadtriangle/prod.bd/releases"
+            class="text-green-600 hover:underline">GitHub Releases</a
+          >
         </p>
       </div>
 
       <div class="tab-content hidden" data-content="windows">
         <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
-          <code>irm https://prod.bd/install.ps1 | iex</code>
+          <code>powershell -c "irm https://prod.bd/install.ps1 | iex"</code>
+        </div>
+                <p class="mt-4 text-gray-600">Or install via Go:</p>
+        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono mt-2">
+          <code
+            >go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code
+          >
         </div>
         <p class="mt-4 text-gray-600">
-          Or download the .exe from <a href="https://github.com/quadtriangle/prod.bd/releases" class="text-green-600 hover:underline">GitHub Releases</a>
+          Or download the .exe from <a
+            href="https://github.com/quadtriangle/prod.bd/releases"
+            class="text-green-600 hover:underline">GitHub Releases</a
+          >
         </p>
       </div>
     </div>
@@ -61,35 +86,35 @@
 </section>
 
 <script>
-  const buttons = document.querySelectorAll('.tab-button');
-  const contents = document.querySelectorAll('.tab-content');
+  const buttons = document.querySelectorAll(".tab-button");
+  const contents = document.querySelectorAll(".tab-content");
 
   // Set initial active tab
-  buttons[0].classList.add('border-green-600', 'text-green-600');
+  buttons[0].classList.add("border-green-600", "text-green-600");
 
-  buttons.forEach(button => {
-    button.addEventListener('click', () => {
-      const tab = button.getAttribute('data-tab');
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.getAttribute("data-tab");
 
       // Remove active state from all buttons
-      buttons.forEach(btn => {
-        btn.classList.remove('border-green-600', 'text-green-600');
-        btn.classList.add('border-transparent', 'text-gray-600');
+      buttons.forEach((btn) => {
+        btn.classList.remove("border-green-600", "text-green-600");
+        btn.classList.add("border-transparent", "text-gray-600");
       });
 
       // Add active state to clicked button
-      button.classList.remove('border-transparent', 'text-gray-600');
-      button.classList.add('border-green-600', 'text-green-600');
+      button.classList.remove("border-transparent", "text-gray-600");
+      button.classList.add("border-green-600", "text-green-600");
 
       // Hide all content
-      contents.forEach(content => {
-        content.classList.add('hidden');
+      contents.forEach((content) => {
+        content.classList.add("hidden");
       });
 
       // Show selected content
       const selectedContent = document.querySelector(`[data-content="${tab}"]`);
       if (selectedContent) {
-        selectedContent.classList.remove('hidden');
+        selectedContent.classList.remove("hidden");
       }
     });
   });
