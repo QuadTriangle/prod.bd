@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"prodbd/internal/config"
 	"prodbd/internal/hooks"
+	"prodbd/internal/plugins/stats"
 	"prodbd/internal/tunnel"
 	"strconv"
 	"sync"
@@ -23,6 +24,7 @@ func main() {
 	//   pipeline.RegisterPlugin(inspector.New())
 	//   pipeline.RegisterPlugin(qrcode.New())
 	//   pipeline.RegisterPlugin(auth.New())
+	pipeline.RegisterPlugin(stats.New())
 
 	// Let plugins register their flags, then parse
 	flag.Usage = func() {

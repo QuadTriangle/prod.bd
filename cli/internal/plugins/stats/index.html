@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>prod.bd — Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f8fafc; --surface: rgba(255,255,255,.8); --border: #e2e8f0;
+    --text: #0f172a; --muted: #64748b; --dim: #cbd5e1;
+    --green: #16a34a; --red: #dc2626; --yellow: #ca8a04;
+    --blue: #2563eb; --orange: #ea580c;
+    --header-bg: rgba(248,250,252,.9); --input-bg: #e2e8f0; --input-text: #334155;
+    --hover-bg: rgba(226,232,240,.4); --td-border: rgba(226,232,240,.6);
+    --pre-bg: rgba(241,245,249,.9); --port-bg: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  [data-theme="dark"] {
+    --bg: #030712; --surface: rgba(17,24,39,.5); --border: #1f2937;
+    --text: #f9fafb; --muted: #6b7280; --dim: #374151;
+    --green: #22c55e; --red: #ef4444; --yellow: #eab308;
+    --blue: #3b82f6; --orange: #f97316;
+    --header-bg: rgba(3,7,18,.8); --input-bg: #1f2937; --input-text: #d1d5db;
+    --hover-bg: rgba(31,41,55,.3); --td-border: rgba(31,41,55,.5);
+    --pre-bg: rgba(17,24,39,.8); --port-bg: #1f2937;
+  }
+  body { background: var(--bg); color: var(--text); min-height: 100vh; }
+  code { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; }
+  .mono { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; }
+
+  /* Header */
+  header { border-bottom: 1px solid var(--border); background: var(--header-bg);
+    backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 40; }
+  .header-inner { max-width: 1600px; margin: 0 auto; padding: .75rem 1.5rem;
+    display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: .5rem; text-decoration: none; }
+  .logo span { font-size: 1.1rem; font-weight: 700; color: var(--green); }
+  .header-right { display: flex; align-items: center; gap: .75rem; }
+  .conn-badge { display: flex; align-items: center; gap: .4rem; font-size: .75rem; padding: .25rem .5rem; border-radius: .25rem; }
+  .conn-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .conn-ok { color: var(--green); } .conn-ok .conn-dot { background: var(--green); }
+  .conn-err { color: var(--red); } .conn-err .conn-dot { background: var(--red); }
+
+  /* Buttons */
+  .btn { padding: .375rem .75rem; border-radius: .5rem; font-size: .75rem;
+    border: none; cursor: pointer; transition: background .15s; }
+  .btn-live { background: rgba(34,197,94,.15); color: var(--green); }
+  .btn-paused { background: var(--dim); color: var(--muted); }
+  .btn-default { background: var(--input-bg); color: var(--input-text); }
+  .btn-default:hover { background: var(--dim); }
+  .pulse { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+
+  /* Layout */
+  .container { max-width: 1600px; margin: 0 auto; padding: 1.5rem; }
+  .grid-summary { display: grid; grid-template-columns: repeat(6,1fr); gap: .75rem; margin-bottom: 1.5rem; }
+  .main-layout { display: flex; gap: 1.5rem; }
+  .sidebar { width: 280px; flex-shrink: 0; }
+  .content { flex: 1; min-width: 0; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: .75rem; padding: 1rem; }
+  .card-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
+  .card-value { font-size: 1.25rem; font-weight: 700; font-family: 'SF Mono', monospace; }
+
+  /* Tunnel buttons */
+  .tunnel-btn { width: 100%; text-align: left; padding: .75rem; border-radius: .75rem;
+    border: 1px solid var(--border); background: var(--surface); cursor: pointer;
+    transition: border-color .15s; margin-bottom: .5rem; color: var(--text); }
+  .tunnel-btn:hover { border-color: var(--dim); }
+  .tunnel-btn.active { background: rgba(34,197,94,.08); border-color: rgba(34,197,94,.3); }
+  .tunnel-name { font-weight: 700; font-size: .875rem; font-family: 'SF Mono', monospace; }
+  .tunnel-port { font-size: .7rem; background: var(--port-bg); color: var(--muted); padding: .1rem .4rem; border-radius: .25rem; }
+  .tunnel-meta { display: flex; gap: .75rem; font-size: .7rem; color: var(--muted); margin-top: .25rem; }
+
+  /* Mini stats */
+  .mini-grid { display: grid; grid-template-columns: repeat(6,1fr); gap: .75rem; }
+  .mini-label { font-size: .7rem; color: var(--muted); }
+  .mini-value { font-size: .875rem; font-weight: 700; font-family: 'SF Mono', monospace; }
+
+  /* Table */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: .75rem; overflow: hidden; margin-top: 1rem; }
+  .table-header { padding: 1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+  .table-title { font-size: .875rem; font-weight: 500; color: var(--input-text); }
+  .filter-input { background: var(--input-bg); border: 1px solid var(--dim); border-radius: .5rem;
+    padding: .375rem .75rem; font-size: .75rem; color: var(--input-text); outline: none; }
+  .filter-input:focus { border-color: var(--green); }
+  select.filter-input { padding: .375rem .5rem; }
+  table { width: 100%; font-size: .875rem; border-collapse: collapse; }
+  th { text-align: left; padding: .5rem 1rem; font-size: .7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); font-weight: 500; }
+  td { padding: .5rem 1rem; border-bottom: 1px solid var(--td-border); }
+  tr:hover td { background: var(--hover-bg); }
+  .method-badge { padding: .1rem .4rem; border-radius: .25rem; font-size: .7rem;
+    font-family: 'SF Mono', monospace; font-weight: 700; }
+  .m-GET { background: rgba(59,130,246,.15); color: var(--blue); }
+  .m-POST { background: rgba(34,197,94,.15); color: var(--green); }
+  .m-PUT { background: rgba(234,179,8,.15); color: var(--yellow); }
+  .m-PATCH { background: rgba(249,115,22,.15); color: var(--orange); }
+  .m-DELETE { background: rgba(239,68,68,.15); color: var(--red); }
+  .s-2xx { color: var(--green); } .s-3xx { color: var(--yellow); }
+  .s-4xx { color: var(--orange); } .s-5xx { color: var(--red); }
+  .empty-row { text-align: center; color: var(--dim); padding: 2rem; }
+  .text-muted { color: var(--muted); } .text-dim { color: var(--dim); }
+  .text-red { color: var(--red); }
+  .link { color: var(--green); text-decoration: none; font-family: 'SF Mono', monospace; font-size: .875rem; }
+  .link:hover { color: #4ade80; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100;
+    display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .modal { background: var(--bg); border: 1px solid var(--border); border-radius: .75rem;
+    width: 90vw; max-width: 800px; max-height: 85vh; display: flex; flex-direction: column; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .modal-head-title { display: flex; align-items: center; gap: .75rem; }
+  .modal-close { background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 1.25rem; padding: .25rem; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 1.25rem; }
+  .modal-tab { padding: .5rem 1rem; font-size: .75rem; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; background: none; border-top: none; border-left: none; border-right: none; }
+  .modal-tab:hover { color: var(--text); }
+  .modal-tab.active { color: var(--green); border-bottom-color: var(--green); }
+  .modal-body { flex: 1; overflow-y: auto; padding: 1.25rem; }
+  .hdr-table { width: 100%; font-size: .8rem; border-collapse: collapse; }
+  .hdr-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--td-border); vertical-align: top; }
+  .hdr-key { color: var(--green); font-family: 'SF Mono', monospace; white-space: nowrap; width: 30%; }
+  .hdr-val { color: var(--input-text); font-family: 'SF Mono', monospace; word-break: break-all; }
+  .body-pre { background: var(--pre-bg); border: 1px solid var(--border); border-radius: .5rem;
+    padding: 1rem; font-family: 'SF Mono', monospace; font-size: .8rem; color: var(--input-text);
+    white-space: pre-wrap; word-break: break-all; overflow-x: auto; max-height: 50vh; }
+  .body-empty { color: var(--dim); font-size: .875rem; padding: 2rem; text-align: center; }
+  tr.clickable { cursor: pointer; }
+  .btn-theme { background: none; border: 1px solid var(--border); border-radius: .5rem;
+    width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center;
+    justify-content: center; font-size: .9rem; transition: border-color .15s; }
+  .btn-theme:hover { border-color: var(--muted); }
+
+  @media (max-width: 1024px) {
+    .grid-summary { grid-template-columns: repeat(3,1fr); }
+    .mini-grid { grid-template-columns: repeat(3,1fr); }
+    .main-layout { flex-direction: column; }
+    .sidebar { width: 100%; }
+    .modal { width: 96vw; max-height: 90vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div style="display:flex;align-items:center;gap:.75rem">
+      <a target="_blank" href="https://prod.bd" class="logo"><span>prod.bd</span></a>
+      <span style="color:var(--dim)">/</span>
+      <span style="color:var(--muted);font-size:.875rem">Dashboard</span>
+    </div>
+    <div class="header-right">
+      <div id="conn-badge" class="conn-badge conn-err"><div class="conn-dot"></div><span>CLI offline</span></div>
+      <button id="btn-live" class="btn btn-paused" onclick="toggleAutoRefresh()">
+        <span style="display:inline-flex;align-items:center;gap:.4rem">
+          <span id="live-dot" class="conn-dot" style="background:var(--muted)"></span>
+          <span id="live-text">Paused</span>
+        </span>
+      </button>
+      <button class="btn btn-default" onclick="refresh()">↻ Refresh</button>
+      <button id="btn-theme" class="btn-theme" onclick="toggleTheme()" aria-label="Toggle theme">☀️</button>
+    </div>
+  </div>
+</header>
+<div class="container">
+  <div id="loading" style="display:flex;align-items:center;justify-content:center;height:16rem">
+    <span style="color:var(--muted)">Connecting to CLI stats server...</span>
+  </div>
+  <div id="offline" style="display:none;text-align:center;padding:4rem 0">
+    <div style="color:var(--muted);font-size:1.1rem;margin-bottom:.5rem">CLI not running</div>
+    <div style="color:var(--dim);font-size:.875rem;margin-bottom:1rem">Start a tunnel to see live stats:</div>
+    <code style="background:var(--input-bg);padding:.5rem 1rem;border-radius:.5rem;color:var(--green);font-size:.875rem">prodbd 3000</code>
+  </div>
+  <div id="app" style="display:none">
+    <div id="summary-cards" class="grid-summary"></div>
+    <div class="main-layout">
+      <div class="sidebar">
+        <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem;padding:0 .25rem">Tunnels</div>
+        <div id="tunnel-list"></div>
+      </div>
+      <div class="content" id="main-content">
+        <div id="no-selection" style="display:flex;align-items:center;justify-content:center;height:16rem;background:var(--surface);border-radius:.75rem;border:1px solid var(--border)">
+          <div style="text-align:center"><div style="color:var(--dim);font-size:1.1rem;margin-bottom:.25rem">Select a tunnel</div><div style="color:var(--dim);font-size:.875rem">Pick a tunnel from the sidebar to view its stats</div></div>
+        </div>
+        <div id="tunnel-detail" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const API = '';
+let autoRefresh = false, intervalId = null, selectedTunnel = null;
+let tunnels = [], requests = [], summary = null, connected = false;
+
+function formatBytes(b) {
+  if (b === 0) return '0 B';
+  const k = 1024, s = ['B','KB','MB','GB'];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
+}
+function formatLatency(ms) {
+  if (ms < 1) return '<1ms';
+  if (ms < 1000) return Math.round(ms) + 'ms';
+  return (ms / 1000).toFixed(2) + 's';
+}
+function timeAgo(unix) {
+  const d = Math.floor(Date.now() / 1000) - unix;
+  if (d < 60) return d + 's ago';
+  if (d < 3600) return Math.floor(d / 60) + 'm ago';
+  if (d < 86400) return Math.floor(d / 3600) + 'h ago';
+  return Math.floor(d / 86400) + 'd ago';
+}
+function statusClass(s) {
+  if (s < 300) return 's-2xx'; if (s < 400) return 's-3xx';
+  if (s < 500) return 's-4xx'; return 's-5xx';
+}
+function methodClass(m) { return 'm-' + m; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+async function fetchAll() {
+  try {
+    const [tRes, sRes] = await Promise.all([
+      fetch(API + '/api/stats/tunnels'), fetch(API + '/api/stats/summary')
+    ]);
+    tunnels = (await tRes.json()).tunnels || [];
+    summary = (await sRes.json()).summary || null;
+    connected = true;
+  } catch { connected = false; }
+  render();
+}
+
+async function fetchRequests(sub) {
+  try {
+    const r = await fetch(API + '/api/stats/requests?subdomain=' + sub + '&limit=200');
+    requests = (await r.json()).requests || [];
+  } catch { requests = []; }
+  renderDetail();
+}
+
+function render() {
+  const loading = document.getElementById('loading');
+  const offline = document.getElementById('offline');
+  const app = document.getElementById('app');
+  const badge = document.getElementById('conn-badge');
+
+  loading.style.display = 'none';
+  if (!connected) {
+    offline.style.display = 'block'; app.style.display = 'none';
+    badge.className = 'conn-badge conn-err';
+    badge.querySelector('span').textContent = 'CLI offline';
+    return;
+  }
+  offline.style.display = 'none'; app.style.display = 'block';
+  badge.className = 'conn-badge conn-ok';
+  badge.querySelector('span').textContent = 'Connected';
+
+  // Summary cards
+  if (summary) {
+    document.getElementById('summary-cards').innerHTML = [
+      ['Active Tunnels', summary.active_tunnels, ''],
+      ['Total Requests', summary.total_requests.toLocaleString(), ''],
+      ['Errors', summary.total_errors, summary.total_errors > 0 ? 'text-red' : ''],
+      ['Avg Latency', formatLatency(summary.avg_latency || 0), ''],
+      ['Traffic In', formatBytes(summary.total_bytes_in || 0), ''],
+      ['Traffic Out', formatBytes(summary.total_bytes_out || 0), ''],
+    ].map(([l,v,c]) => `<div class="card"><div class="card-label">${l}</div><div class="card-value ${c}">${v}</div></div>`).join('');
+  }
+
+  // Tunnel list
+  const list = document.getElementById('tunnel-list');
+  if (tunnels.length === 0) {
+    list.innerHTML = '<div class="card" style="color:var(--dim);font-size:.875rem">No active tunnels</div>';
+  } else {
+    list.innerHTML = tunnels.map(t => `
+      <button class="tunnel-btn ${selectedTunnel === t.subdomain ? 'active' : ''}" onclick="selectTunnel('${t.subdomain}')">
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span class="tunnel-name">${esc(t.subdomain)}</span>
+          <span class="tunnel-port">:${t.port}</span>
+        </div>
+        <div class="tunnel-meta">
+          <span>${t.total_requests} reqs</span>
+          ${t.error_count > 0 ? '<span class="text-red">' + t.error_count + ' err</span>' : ''}
+          <span>${formatLatency(t.avg_latency)}</span>
+        </div>
+      </button>
+    `).join('');
+  }
+
+  // Detail area
+  if (!selectedTunnel) {
+    document.getElementById('no-selection').style.display = 'flex';
+    document.getElementById('tunnel-detail').style.display = 'none';
+  } else {
+    document.getElementById('no-selection').style.display = 'none';
+    document.getElementById('tunnel-detail').style.display = 'block';
+    renderDetail();
+  }
+}
+
+function renderDetail() {
+  const t = tunnels.find(x => x.subdomain === selectedTunnel);
+  if (!t) return;
+  const total = t.total_bytes_in + t.total_bytes_out;
+  const errRate = t.total_requests > 0 ? ((t.error_count / t.total_requests) * 100).toFixed(1) + '%' : '0%';
+
+  const filterMethod = document.getElementById('filter-method')?.value || 'ALL';
+  const filterStatus = document.getElementById('filter-status')?.value || 'ALL';
+  const searchPath = document.getElementById('filter-path')?.value || '';
+
+  const filtered = requests.filter(r => {
+    if (filterMethod !== 'ALL' && r.method !== filterMethod) return false;
+    if (filterStatus === '2xx' && (r.status < 200 || r.status >= 300)) return false;
+    if (filterStatus === '3xx' && (r.status < 300 || r.status >= 400)) return false;
+    if (filterStatus === '4xx' && (r.status < 400 || r.status >= 500)) return false;
+    if (filterStatus === '5xx' && r.status < 500) return false;
+    if (searchPath && !r.path.toLowerCase().includes(searchPath.toLowerCase())) return false;
+    return true;
+  });
+
+  document.getElementById('tunnel-detail').innerHTML = `
+    <div class="card" style="padding:1.25rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem">
+        <div>
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.25rem">
+            <span style="font-size:1.25rem;font-weight:700" class="mono">${esc(t.subdomain)}</span>
+            <span class="tunnel-port">:${t.port}</span>
+          </div>
+          <a href="https://${esc(t.subdomain)}.prod.bd" target="_blank" rel="noopener" class="link">${esc(t.subdomain)}.prod.bd ↗</a>
+        </div>
+      </div>
+      <div class="mini-grid">
+        <div><div class="mini-label">Requests</div><div class="mini-value">${t.total_requests.toLocaleString()}</div></div>
+        <div><div class="mini-label">Errors</div><div class="mini-value ${t.error_count > 0 ? 'text-red' : ''}">${t.error_count}</div></div>
+        <div><div class="mini-label">Error Rate</div><div class="mini-value">${errRate}</div></div>
+        <div><div class="mini-label">Avg Latency</div><div class="mini-value">${formatLatency(t.avg_latency)}</div></div>
+        <div><div class="mini-label">Traffic</div><div class="mini-value">${formatBytes(total)}</div></div>
+        <div><div class="mini-label">Running</div><div class="mini-value">${timeAgo(t.connected_at)}</div></div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <span class="table-title">Request Log</span>
+        <div style="flex:1"></div>
+        <input id="filter-path" class="filter-input" placeholder="Filter path..." value="${esc(searchPath)}" oninput="renderDetail()">
+        <select id="filter-method" class="filter-input" onchange="renderDetail()">
+          <option value="ALL" ${filterMethod==='ALL'?'selected':''}>All Methods</option>
+          <option value="GET" ${filterMethod==='GET'?'selected':''}>GET</option>
+          <option value="POST" ${filterMethod==='POST'?'selected':''}>POST</option>
+          <option value="PUT" ${filterMethod==='PUT'?'selected':''}>PUT</option>
+          <option value="PATCH" ${filterMethod==='PATCH'?'selected':''}>PATCH</option>
+          <option value="DELETE" ${filterMethod==='DELETE'?'selected':''}>DELETE</option>
+        </select>
+        <select id="filter-status" class="filter-input" onchange="renderDetail()">
+          <option value="ALL" ${filterStatus==='ALL'?'selected':''}>All Status</option>
+          <option value="2xx" ${filterStatus==='2xx'?'selected':''}>2xx</option>
+          <option value="3xx" ${filterStatus==='3xx'?'selected':''}>3xx</option>
+          <option value="4xx" ${filterStatus==='4xx'?'selected':''}>4xx</option>
+          <option value="5xx" ${filterStatus==='5xx'?'selected':''}>5xx</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Latency</th><th>Size</th><th>Time</th></tr></thead>
+          <tbody>
+            ${filtered.length === 0
+              ? '<tr><td colspan="6" class="empty-row">No requests yet</td></tr>'
+              : filtered.map(r => `<tr class="clickable" onclick="showDetail('${r.id}')">
+                  <td><span class="method-badge ${methodClass(r.method)}">${r.method}</span></td>
+                  <td class="mono text-muted" style="font-size:.75rem;max-width:20rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.path)}</td>
+                  <td class="mono ${statusClass(r.status)}">${r.status}</td>
+                  <td class="text-muted">${formatLatency(r.latency_ms)}</td>
+                  <td class="text-muted" style="font-size:.75rem">${formatBytes(r.bytes_in + r.bytes_out)}</td>
+                  <td class="text-muted" style="font-size:.75rem">${timeAgo(r.created_at)}</td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function selectTunnel(sub) {
+  selectedTunnel = sub;
+  fetchRequests(sub);
+  render();
+}
+
+function toggleAutoRefresh() {
+  autoRefresh = !autoRefresh;
+  const btn = document.getElementById('btn-live');
+  const dot = document.getElementById('live-dot');
+  const txt = document.getElementById('live-text');
+  if (autoRefresh) {
+    btn.className = 'btn btn-live'; dot.style.background = 'var(--green)';
+    dot.classList.add('pulse'); txt.textContent = 'Live'; startInterval();
+  } else {
+    btn.className = 'btn btn-paused'; dot.style.background = 'var(--muted)';
+    dot.classList.remove('pulse'); txt.textContent = 'Paused'; stopInterval();
+  }
+}
+
+function startInterval() {
+  stopInterval();
+  intervalId = setInterval(() => { fetchAll(); if (selectedTunnel) fetchRequests(selectedTunnel); }, 2000);
+}
+function stopInterval() { if (intervalId) { clearInterval(intervalId); intervalId = null; } }
+
+async function refresh() { await fetchAll(); if (selectedTunnel) await fetchRequests(selectedTunnel); }
+
+// --- Detail modal ---
+let modalTab = 'req-headers';
+
+function showDetail(id) {
+  const r = requests.find(x => String(x.id) === String(id));
+  if (!r) return;
+  modalTab = 'req-headers';
+  renderModal(r);
+}
+
+function renderModal(r) {
+  const tabs = [
+    { key: 'req-headers', label: 'Request Headers' },
+    { key: 'resp-headers', label: 'Response Headers' },
+    { key: 'req-body', label: 'Request Body' },
+    { key: 'resp-body', label: 'Response Body' },
+  ];
+
+  let content = '';
+  if (modalTab === 'req-headers') content = renderHeaders(r.request_headers);
+  else if (modalTab === 'resp-headers') content = renderHeaders(r.response_headers);
+  else if (modalTab === 'req-body') content = renderBody(r.request_body);
+  else if (modalTab === 'resp-body') content = renderBody(r.response_body);
+
+  const el = document.getElementById('modal-root');
+  el.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div class="modal-head-title">
+            <span class="method-badge ${methodClass(r.method)}">${r.method}</span>
+            <span class="mono" style="font-size:.875rem;color:var(--input-text)">${esc(r.path)}</span>
+            <span class="mono ${statusClass(r.status)}" style="font-size:.875rem">${r.status}</span>
+            <span class="text-muted" style="font-size:.75rem">${formatLatency(r.latency_ms)}</span>
+          </div>
+          <button class="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-tabs">
+          ${tabs.map(t => `<button class="modal-tab ${modalTab === t.key ? 'active' : ''}" onclick="switchTab('${t.key}', ${r.id})">${t.label}</button>`).join('')}
+        </div>
+        <div class="modal-body">${content}</div>
+      </div>
+    </div>`;
+  el.style.display = 'block';
+}
+
+function renderHeaders(headers) {
+  if (!headers || Object.keys(headers).length === 0) return '<div class="body-empty">No headers</div>';
+  let rows = '';
+  for (const [k, vals] of Object.entries(headers)) {
+    const v = Array.isArray(vals) ? vals.join(', ') : vals;
+    rows += `<tr><td class="hdr-key">${esc(k)}</td><td class="hdr-val">${esc(v)}</td></tr>`;
+  }
+  return `<table class="hdr-table">${rows}</table>`;
+}
+
+function renderBody(body) {
+  if (!body) return '<div class="body-empty">No body</div>';
+  let display = body;
+  try { display = JSON.stringify(JSON.parse(body), null, 2); } catch {}
+  return `<pre class="body-pre">${esc(display)}</pre>`;
+}
+
+function switchTab(tab, id) {
+  modalTab = tab;
+  const r = requests.find(x => x.id === id);
+  if (r) renderModal(r);
+}
+
+function closeModal(e) {
+  if (e && e.target && !e.target.classList.contains('modal-overlay')) return;
+  document.getElementById('modal-root').style.display = 'none';
+  document.getElementById('modal-root').innerHTML = '';
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+// --- Theme toggle ---
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    html.removeAttribute('data-theme');
+    document.getElementById('btn-theme').textContent = '☀️';
+    try { localStorage.setItem('theme', 'light'); } catch {}
+  } else {
+    html.setAttribute('data-theme', 'dark');
+    document.getElementById('btn-theme').textContent = '🌙';
+    try { localStorage.setItem('theme', 'dark'); } catch {}
+  }
+}
+(function() {
+  try {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('btn-theme').textContent = '🌙';
+    }
+  } catch {}
+})();
+
+// Boot
+fetchAll().then(() => { toggleAutoRefresh(); });
+</script>
+<div id="modal-root" style="display:none"></div>
+</body>
+</html>

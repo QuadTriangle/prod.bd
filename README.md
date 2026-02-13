@@ -67,11 +67,11 @@ cd cli && go build -o prodbd ./cmd/prodbd
 
 ## Infrastructure
 
-- [x] plugin system — implement features without adding complexity to the core tunnel
+- [x] Plugin system — implement features without adding complexity to the core tunnel
 
 ## Reliability & DX
 
-- [ ] Request logging/inspector — live feed of requests in the CLI (method, path, status, latency)
+- [x] Request logging/inspector — live feed of requests (method, path, status, latency)
 - [ ] Custom subdomains — `prodbd --subdomain myapp 3000` to pick your own subdomain
 - [ ] Basic auth protection — `prodbd --auth user:pass 3000` to add HTTP basic auth at the worker level
 
@@ -96,7 +96,7 @@ cd cli && go build -o prodbd ./cmd/prodbd
 ## Observability
 
 - [ ] Webhook replay — store last N requests, replay from CLI (`prodbd replay <request-id>`)
-- [ ] Traffic stats — bytes transferred, request count, avg latency per tunnel session
+- [x] Traffic stats — bytes transferred, request count, avg latency per tunnel session
 
 
 ## License
