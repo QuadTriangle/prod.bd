@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/QuadTriangle/prod.bd/cli/internal/config"
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 )
 
@@ -21,7 +22,8 @@ func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse 
 		},
 	}
 
-	targetURL := fmt.Sprintf("http://localhost:%d%s", localPort, req.Path)
+	host := config.GetTargetHost()
+	targetURL := fmt.Sprintf("http://%s:%d%s", host, localPort, req.Path)
 
 	var body io.Reader
 	if req.Body != "" {
@@ -59,7 +61,7 @@ func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse 
 	}
 
 	// Many local dev servers check Host header
-	httpReq.Host = fmt.Sprintf("localhost:%d", localPort)
+	httpReq.Host = fmt.Sprintf("%s:%d", host, localPort)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {

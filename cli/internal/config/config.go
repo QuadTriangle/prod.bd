@@ -63,3 +63,11 @@ func generateID() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+// host.docker.internal is not available in Linux
+func GetTargetHost() string {
+	if os.Getenv("NET_HOST") == "false" {
+		return "host.docker.internal"
+	}
+	return "localhost"
+}

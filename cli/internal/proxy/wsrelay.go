@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/QuadTriangle/prod.bd/cli/internal/config"
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 
 	"github.com/gorilla/websocket"
@@ -44,7 +45,8 @@ func NewWSRelay(localPort int, writeJSON func(v any) error) *WSRelay {
 
 // HandleOpen dials the local WebSocket server and starts relaying frames.
 func (r *WSRelay) HandleOpen(msg types.WSOpen) {
-	localURL := fmt.Sprintf("ws://localhost:%d%s", r.localPort, msg.Path)
+	host := config.GetTargetHost()
+	localURL := fmt.Sprintf("ws://%s:%d%s", host, r.localPort, msg.Path)
 
 	reqHeader := http.Header{}
 	for k, vals := range msg.Headers {
@@ -58,7 +60,7 @@ func (r *WSRelay) HandleOpen(msg types.WSOpen) {
 			reqHeader[canonical] = vals
 		}
 	}
-	reqHeader.Set("Host", fmt.Sprintf("localhost:%d", r.localPort))
+	reqHeader.Set("Host", fmt.Sprintf("%s:%d", host, r.localPort))
 
 	localConn, _, err := websocket.DefaultDialer.Dial(localURL, reqHeader)
 	if err != nil {
