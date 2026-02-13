@@ -24,7 +24,7 @@ func GetClientID() (string, error) {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	configDir := filepath.Join(homeDir, ".prodbd")
+	configDir := filepath.Join(homeDir, ".prod")
 	idFile := filepath.Join(configDir, "id")
 
 	// Check if ID file exists

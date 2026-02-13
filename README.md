@@ -30,10 +30,10 @@ irm https://prod.bd/install.ps1 | iex
 
 ```bash
 # Expose a single port
-prodbd 3000
+prod 3000
 
 # Expose multiple ports
-prodbd 3000 8080 5173
+prod 3000 8080 5173
 ```
 
 You'll get URLs like:
@@ -55,7 +55,7 @@ cd worker && pnpm dev
 cd web && pnpm dev
 
 # Build CLI
-cd cli && go build -o prodbd ./cmd/prodbd
+cd cli && go build -o prod ./cmd/prod
 ```
 
 # Feature Roadmap
@@ -72,8 +72,8 @@ cd cli && go build -o prodbd ./cmd/prodbd
 ## Reliability & DX
 
 - [x] Request logging/inspector — live feed of requests (method, path, status, latency)
-- [ ] Custom subdomains — `prodbd --subdomain myapp 3000` to pick your own subdomain
-- [ ] Basic auth protection — `prodbd --auth user:pass 3000` to add HTTP basic auth at the worker level
+- [ ] Custom subdomains — `prod --subdomain myapp 3000` to pick your own subdomain
+- [ ] Basic auth protection — `prod --auth user:pass 3000` to add HTTP basic auth at the worker level
 
 ## Performance & Resilience
 
@@ -85,17 +85,17 @@ cd cli && go build -o prodbd ./cmd/prodbd
 
 - [ ] Tunnel access tokens — token-based auth (`X-Tunnel-Token` header) to restrict tunnel access
 - [ ] Rate limiting — per-subdomain rate limiting at the worker to prevent abuse
-- [ ] IP allowlisting — `prodbd --allow-ip 1.2.3.4 3000` to restrict access by IP
+- [ ] IP allowlisting — `prod --allow-ip 1.2.3.4 3000` to restrict access by IP
 
 ## Collaboration & Sharing
 
 - [ ] QR code generation — print a QR code in the terminal for the tunnel URL (mobile testing)
-- [ ] Tunnel sharing with expiry — `prodbd --ttl 1h 3000` to auto-expire tunnels
+- [ ] Tunnel sharing with expiry — `prod --ttl 1h 3000` to auto-expire tunnels
 - [ ] Team/org support — shared client IDs for consistent subdomains across machines
 
 ## Observability
 
-- [ ] Webhook replay — store last N requests, replay from CLI (`prodbd replay <request-id>`)
+- [ ] Webhook replay — store last N requests, replay from CLI (`prod replay <request-id>`)
 - [x] Traffic stats — bytes transferred, request count, avg latency per tunnel session
 
 

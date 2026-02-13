@@ -1,4 +1,4 @@
-module prodbd
+module github.com/QuadTriangle/prod.bd/cli
 
 go 1.25.5
 

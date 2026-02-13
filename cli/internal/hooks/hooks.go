@@ -2,7 +2,8 @@ package hooks
 
 import (
 	"flag"
-	"prodbd/internal/types"
+
+	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 )
 
 // --- Hook interfaces (unchanged) ---

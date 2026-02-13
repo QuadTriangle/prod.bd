@@ -4,8 +4,8 @@
 $ErrorActionPreference = "Stop"
 
 $REPO = "quadtriangle/prod.bd"
-$BINARY_NAME = "prodbd"
-$INSTALL_DIR = "$env:LOCALAPPDATA\prodbd"
+$BINARY_NAME = "prod"
+$INSTALL_DIR = "$env:LOCALAPPDATA\prod"
 
 # Detect architecture
 $ARCH = if ([Environment]::Is64BitOperatingSystem) {

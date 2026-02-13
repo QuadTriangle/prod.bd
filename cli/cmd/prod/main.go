@@ -6,13 +6,14 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"prodbd/internal/config"
-	"prodbd/internal/hooks"
-	"prodbd/internal/plugins/stats"
-	"prodbd/internal/tunnel"
 	"strconv"
 	"sync"
 	"syscall"
+
+	"github.com/QuadTriangle/prod.bd/cli/internal/config"
+	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
+	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/stats"
+	"github.com/QuadTriangle/prod.bd/cli/internal/tunnel"
 )
 
 func main() {

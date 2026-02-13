@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"prodbd/internal/types"
 	"sync"
+
+	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 
 	"github.com/gorilla/websocket"
 )

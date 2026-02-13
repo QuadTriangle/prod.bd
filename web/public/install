@@ -6,7 +6,7 @@ set -e
 
 REPO="quadtriangle/prod.bd"
 INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="prodbd"
+BINARY_NAME="prod"
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

@@ -4,13 +4,14 @@ import (
 	"encoding/base64"
 	"flag"
 	"log"
-	"prodbd/internal/hooks"
-	"prodbd/internal/types"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
+	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 )
 
 // goroutineID returns the current goroutine's ID.
@@ -222,8 +223,8 @@ func (s *Store) RecentLogs(n int) []RequestEntry {
 // --- Plugin wiring ---
 
 // Plugin implements hooks.Plugin for in-memory stats collection.
+// Controlled by a single -dashboard flag: port > 0 enables stats + dashboard, 0 disables everything.
 type Plugin struct {
-	enabled       bool
 	dashboardPort int
 	store         *Store
 	server        *Server
@@ -237,10 +238,9 @@ func New() *Plugin {
 
 func (p *Plugin) Name() string { return "stats" }
 func (p *Plugin) RegisterFlags(fs *flag.FlagSet) {
-	fs.BoolVar(&p.enabled, "stats", true, "Collect in-memory request stats")
-	fs.IntVar(&p.dashboardPort, "dashboard", 9999, "Local dashboard API port (0 to disable)")
+	fs.IntVar(&p.dashboardPort, "dashboard-port", 9999, "Stats dashboard port (0 to disable stats entirely)")
 }
-func (p *Plugin) Enabled() bool                { return p.enabled }
+func (p *Plugin) Enabled() bool                { return p.dashboardPort > 0 }
 func (p *Plugin) WorkerConfig() map[string]any { return nil }
 func (p *Plugin) RequestHooks() []hooks.RequestHook {
 	return []hooks.RequestHook{&reqHook{store: p.store}}

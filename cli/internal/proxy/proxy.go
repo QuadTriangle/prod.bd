@@ -7,8 +7,9 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"prodbd/internal/types"
 	"time"
+
+	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 )
 
 func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse {

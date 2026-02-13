@@ -22,4 +22,4 @@ go.work
 .vscode
 
 # Binary
-prodbd
+/prod

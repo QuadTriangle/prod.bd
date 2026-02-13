@@ -7,11 +7,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"prodbd/internal/hooks"
-	"prodbd/internal/proxy"
-	"prodbd/internal/types"
 	"sync"
 	"time"
+
+	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
+	"github.com/QuadTriangle/prod.bd/cli/internal/proxy"
+	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 
 	"github.com/gorilla/websocket"
 )
