@@ -26,6 +26,16 @@ powershell -c "irm https://prod.bd/install.ps1 | iex"
 # https://github.com/quadtriangle/prod.bd/releases
 ```
 
+### Docker
+
+```bash
+# Linux (uses host networking, localhost works directly)
+docker run --rm -it -e NET_HOST="true" --net=host ghcr.io/quadtriangle/prod.bd:latest 3000 8080
+
+# Windows / macOS (Docker Desktop routes to host)
+docker run --rm -it ghcr.io/quadtriangle/prod.bd:latest 3000 8080
+```
+
 ### Expose Local Ports
 
 ```bash
