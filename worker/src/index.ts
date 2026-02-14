@@ -7,6 +7,8 @@ import { pluginMiddleware, runRegisterHooks, type RegisterResult } from "./plugi
 // Each plugin self-registers via registerMiddleware() / onRegister() at import time.
 import "./middleware/ipfilter";
 import "./middleware/auth";
+import "./middleware/subdomain-block";
+import { isSubdomainBlocked } from "./middleware/subdomain-block";
 
 export { TunnelDO };
 
@@ -29,6 +31,12 @@ async function allocateSubdomain(db: D1Database, clientId: string, port: number,
 
     while (retries < maxRetries) {
         const subdomain = generateSubdomain(subdomainLength);
+
+        // Skip offensive subdomains
+        if (isSubdomainBlocked(subdomain)) {
+            retries++;
+            continue;
+        }
 
         const existing = await db.prepare(
             "SELECT 1 FROM tunnels WHERE subdomain = ?"
