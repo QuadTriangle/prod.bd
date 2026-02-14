@@ -94,8 +94,8 @@ cd cli && go build -o prod ./cmd/prod
 
 - [ ] Tunnel access tokens — token-based auth (`X-Tunnel-Token` header) to restrict tunnel access
 - [ ] Rate limiting — per-subdomain rate limiting at the worker to prevent abuse
-- [ ] IP allowlisting — `prod --allow-ip 1.2.3.4 3000` to restrict access by IP
-- [ ] Basic auth protection — `prod --auth user:pass 3000` to add HTTP basic auth at the worker level
+- [x] IP allowlisting — `prod --allow-ip 1.2.3.4 3000` to restrict access by IP
+- [x] Basic auth protection — `prod --auth user:pass 3000` to add HTTP basic auth at the worker level
 
 ## Collaboration & Sharing
 
