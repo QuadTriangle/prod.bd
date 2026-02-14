@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuadTriangle/prod.bd/cli/internal/config"
 	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
+	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/ipallow"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/stats"
 	"github.com/QuadTriangle/prod.bd/cli/internal/tunnel"
 )
@@ -26,6 +27,7 @@ func main() {
 	//   pipeline.RegisterPlugin(qrcode.New())
 	//   pipeline.RegisterPlugin(auth.New())
 	pipeline.RegisterPlugin(stats.New())
+	pipeline.RegisterPlugin(ipallow.New())
 
 	// Let plugins register their flags, then parse
 	flag.Usage = func() {

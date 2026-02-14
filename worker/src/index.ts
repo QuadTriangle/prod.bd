@@ -5,8 +5,7 @@ import { pluginMiddleware, runRegisterHooks, type RegisterResult } from "./plugi
 
 // --- Import feature plugins here ---
 // Each plugin self-registers via registerMiddleware() / onRegister() at import time.
-// Example: import "./middleware/auth";
-// Example: import "./middleware/ratelimit";
+import "./middleware/ipfilter";
 
 export { TunnelDO };
 
