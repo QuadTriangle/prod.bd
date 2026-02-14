@@ -79,13 +79,11 @@ app.post("/api/register", async (c) => {
 
         for (const port of ports) {
             if (existingMap.has(port)) {
-                // Update config for existing tunnels
-                if (body.config) {
-                    await c.env.DB.prepare(
-                        "UPDATE tunnels SET config = ? WHERE client_id = ? AND port = ?"
-                    ).bind(configStr, clientId, port).run();
-                    invalidateConfigCache(existingMap.get(port)!);
-                }
+                // Always update config — clears stale config when no plugins are active
+                await c.env.DB.prepare(
+                    "UPDATE tunnels SET config = ? WHERE client_id = ? AND port = ?"
+                ).bind(configStr, clientId, port).run();
+                invalidateConfigCache(existingMap.get(port)!);
                 results[port] = existingMap.get(port)!;
                 continue;
             }

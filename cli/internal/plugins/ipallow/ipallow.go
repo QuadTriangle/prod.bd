@@ -18,7 +18,7 @@ func New() hooks.Plugin {
 func (p *plugin) Name() string { return "ipallow" }
 
 func (p *plugin) RegisterFlags(fs *flag.FlagSet) {
-	p.allowIPs = fs.String("allow-ip", "", "Comma-separated list of allowed IPs or CIDRs (e.g. 1.2.3.4,10.0.0.0/8)")
+	p.allowIPs = fs.String("allow-ip", "", "Comma-separated list of allowed IPs or CIDRs (e.g. 1.2.3.4,10.0.0.0/8,2001:4860:4860::6464).")
 }
 
 func (p *plugin) Enabled() bool { return p.allowIPs != nil && *p.allowIPs != "" }
