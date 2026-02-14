@@ -6,22 +6,22 @@
   <div class="max-w-4xl mx-auto px-6">
     <h2 class="text-4xl font-bold text-center mb-12">Quick Install</h2>
 
-    <div class="bg-white rounded-lg shadow-lg p-8">
-      <div class="flex gap-4 mb-6 border-b">
+    <div class="bg-white rounded-lg shadow-lg p-4 sm:p-8">
+      <div class="flex gap-2 sm:gap-4 mb-6 border-b overflow-x-auto">
         <button
-          class="tab-button cursor-pointer border-green-600 px-6 py-3 font-semibold hover:text-gray-900 border-b-2"
+          class="tab-button cursor-pointer border-green-600 px-4 sm:px-6 py-3 font-semibold hover:text-gray-900 border-b-2 whitespace-nowrap"
           data-tab="linux"
         >
           Linux
         </button>
         <button
-          class="tab-button cursor-pointer px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
+          class="tab-button cursor-pointer px-4 sm:px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent whitespace-nowrap"
           data-tab="macos"
         >
           macOS
         </button>
         <button
-          class="tab-button cursor-pointer px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent"
+          class="tab-button cursor-pointer px-4 sm:px-6 py-3 font-semibold text-gray-600 hover:text-gray-900 border-b-2 border-transparent whitespace-nowrap"
           data-tab="windows"
         >
           Windows
@@ -29,14 +29,52 @@
       </div>
 
       <div class="tab-content hidden" data-content="macos">
-        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
-          <code>curl -fsSL https://prod.bd/install | bash</code>
+        <div
+          class="code-block bg-gray-900 text-green-400 p-4 sm:p-6 rounded-lg font-mono relative group"
+        >
+          <pre
+            class="overflow-x-auto"><code>curl -fsSL https://prod.bd/install | bash</code></pre>
+          <button
+            class="copy-btn"
+            data-copy="curl -fsSL https://prod.bd/install | bash"
+            aria-label="Copy to clipboard"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              ><rect x="9" y="9" width="13" height="13" rx="2"></rect><path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path></svg
+            >
+          </button>
         </div>
         <p class="mt-4 text-gray-600">Or install via Go:</p>
-        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono mt-2">
-          <code
-            >go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code
+        <div
+          class="code-block bg-gray-900 text-green-400 p-4 sm:p-6 rounded-lg font-mono mt-2 relative group"
+        >
+          <pre
+            class="overflow-x-auto"><code>go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code></pre>
+          <button
+            class="copy-btn"
+            data-copy="go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest"
+            aria-label="Copy to clipboard"
           >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              ><rect x="9" y="9" width="13" height="13" rx="2"></rect><path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path></svg
+            >
+          </button>
         </div>
         <p class="mt-4 text-gray-600">
           Or download the binary directly from <a
@@ -47,14 +85,52 @@
       </div>
 
       <div class="tab-content" data-content="linux">
-        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
-          <code>curl -fsSL https://prod.bd/install | bash</code>
+        <div
+          class="code-block bg-gray-900 text-green-400 p-4 sm:p-6 rounded-lg font-mono relative group"
+        >
+          <pre
+            class="overflow-x-auto"><code>curl -fsSL https://prod.bd/install | bash</code></pre>
+          <button
+            class="copy-btn"
+            data-copy="curl -fsSL https://prod.bd/install | bash"
+            aria-label="Copy to clipboard"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              ><rect x="9" y="9" width="13" height="13" rx="2"></rect><path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path></svg
+            >
+          </button>
         </div>
         <p class="mt-4 text-gray-600">Or install via Go:</p>
-        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono mt-2">
-          <code
-            >go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code
+        <div
+          class="code-block bg-gray-900 text-green-400 p-4 sm:p-6 rounded-lg font-mono mt-2 relative group"
+        >
+          <pre
+            class="overflow-x-auto"><code>go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code></pre>
+          <button
+            class="copy-btn"
+            data-copy="go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest"
+            aria-label="Copy to clipboard"
           >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              ><rect x="9" y="9" width="13" height="13" rx="2"></rect><path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path></svg
+            >
+          </button>
         </div>
         <p class="mt-4 text-gray-600">
           Or download the binary directly from <a
@@ -65,14 +141,52 @@
       </div>
 
       <div class="tab-content hidden" data-content="windows">
-        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono">
-          <code>powershell -c "irm https://prod.bd/install.ps1 | iex"</code>
-        </div>
-                <p class="mt-4 text-gray-600">Or install via Go:</p>
-        <div class="bg-gray-900 text-green-400 p-6 rounded-lg font-mono mt-2">
-          <code
-            >go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code
+        <div
+          class="code-block bg-gray-900 text-green-400 p-4 sm:p-6 rounded-lg font-mono relative group"
+        >
+          <pre
+            class="overflow-x-auto"><code>powershell -c "irm https://prod.bd/install.ps1 | iex"</code></pre>
+          <button
+            class="copy-btn"
+            data-copy='powershell -c "irm https://prod.bd/install.ps1 | iex"'
+            aria-label="Copy to clipboard"
           >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              ><rect x="9" y="9" width="13" height="13" rx="2"></rect><path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path></svg
+            >
+          </button>
+        </div>
+        <p class="mt-4 text-gray-600">Or install via Go:</p>
+        <div
+          class="code-block bg-gray-900 text-green-400 p-4 sm:p-6 rounded-lg font-mono mt-2 relative group"
+        >
+          <pre
+            class="overflow-x-auto"><code>go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest</code></pre>
+          <button
+            class="copy-btn"
+            data-copy="go install github.com/QuadTriangle/prod.bd/cli/cmd/prod@latest"
+            aria-label="Copy to clipboard"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              ><rect x="9" y="9" width="13" height="13" rx="2"></rect><path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path></svg
+            >
+          </button>
         </div>
         <p class="mt-4 text-gray-600">
           Or download the .exe from <a
@@ -84,6 +198,28 @@
     </div>
   </div>
 </section>
+
+<style>
+  .copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.4rem;
+    border-radius: 0.375rem;
+    color: #9ca3af;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .copy-btn:hover {
+    color: #fff;
+  }
+  .copy-btn.copied {
+    color: #22c55e;
+    opacity: 1;
+  }
+</style>
 
 <script>
   const buttons = document.querySelectorAll(".tab-button");
@@ -106,15 +242,38 @@
       button.classList.remove("border-transparent", "text-gray-600");
       button.classList.add("border-green-600", "text-green-600");
 
-      // Hide all content
-      contents.forEach((content) => {
-        content.classList.add("hidden");
-      });
+      contents.forEach((content) => content.classList.add("hidden"));
 
-      // Show selected content
-      const selectedContent = document.querySelector(`[data-content="${tab}"]`);
-      if (selectedContent) {
-        selectedContent.classList.remove("hidden");
+      const selected = document.querySelector(`[data-content="${tab}"]`);
+      if (selected) selected.classList.remove("hidden");
+    });
+  });
+
+  // Copy buttons
+  document.querySelectorAll(".copy-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const text = btn.getAttribute("data-copy");
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.classList.add("copied");
+        btn.innerHTML =
+          '<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5" /></svg>';
+        setTimeout(() => {
+          btn.classList.remove("copied");
+          btn.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>';
+        }, 2000);
+      } catch {
+        // Fallback: select the text
+        const code = btn.closest(".code-block")?.querySelector("code");
+        if (code) {
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
       }
     });
   });
