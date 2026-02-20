@@ -1,13 +1,16 @@
 package stats
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -69,6 +72,7 @@ func StartServer(store *Store, port int) (*Server, error) {
 	mux.HandleFunc("/api/stats/tunnels", s.handleTunnels)
 	mux.HandleFunc("/api/stats/requests", s.handleRequests)
 	mux.HandleFunc("/api/stats/summary", s.handleSummary)
+	mux.HandleFunc("/api/stats/replay/", s.handleReplay)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		data, _ := dashboardHTML.ReadFile("index.html")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -98,7 +102,7 @@ func (s *Server) Addr() string {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -196,4 +200,76 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		sum.AvgLatency = float64(totalLatency) / float64(sum.TotalRequests)
 	}
 	writeJSON(w, map[string]any{"summary": sum})
+}
+
+func (s *Server) handleReplay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract ID from /api/stats/replay/{id}
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/stats/replay/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid request id", http.StatusBadRequest)
+		return
+	}
+
+	entry := s.store.GetByID(id)
+	if entry == nil {
+		http.Error(w, "request not found", http.StatusNotFound)
+		return
+	}
+
+	port, ok := s.store.PortForSubdomain(entry.Subdomain)
+	if !ok {
+		http.Error(w, "tunnel no longer connected", http.StatusGone)
+		return
+	}
+
+	// Replay the original request against the local server
+	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, entry.Path)
+
+	var body io.Reader
+	if entry.RequestBody != "" {
+		body = bytes.NewReader([]byte(entry.RequestBody))
+	}
+
+	req, err := http.NewRequest(entry.Method, targetURL, body)
+	if err != nil {
+		http.Error(w, "failed to create request", http.StatusInternalServerError)
+		return
+	}
+	for k, vals := range entry.RequestHeaders {
+		req.Header[k] = vals
+	}
+
+	client := &http.Client{
+		Timeout:       30 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("replay failed: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	latency := time.Since(start)
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	headers := make(map[string][]string)
+	for k, v := range resp.Header {
+		headers[k] = v
+	}
+
+	writeJSON(w, map[string]any{
+		"original_id": id,
+		"status":      resp.StatusCode,
+		"latency_ms":  float64(latency.Milliseconds()),
+		"headers":     headers,
+		"body":        string(respBody),
+	})
 }

@@ -366,10 +366,10 @@ function renderDetail() {
       </div>
       <div style="overflow-x:auto">
         <table>
-          <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Latency</th><th>Size</th><th>Time</th></tr></thead>
+          <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Latency</th><th>Size</th><th>Time</th><th>Actions</th></tr></thead>
           <tbody>
             ${filtered.length === 0
-              ? '<tr><td colspan="6" class="empty-row">No requests yet</td></tr>'
+              ? '<tr><td colspan="7" class="empty-row">No requests yet</td></tr>'
               : filtered.map(r => `<tr class="clickable" onclick="showDetail('${r.id}')">
                   <td><span class="method-badge ${methodClass(r.method)}">${r.method}</span></td>
                   <td class="mono text-muted" style="font-size:.75rem;max-width:20rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.path)}</td>
@@ -377,6 +377,7 @@ function renderDetail() {
                   <td class="text-muted">${formatLatency(r.latency_ms)}</td>
                   <td class="text-muted" style="font-size:.75rem">${formatBytes(r.bytes_in + r.bytes_out)}</td>
                   <td class="text-muted" style="font-size:.75rem">${timeAgo(r.created_at)}</td>
+                  <td><button class="btn btn-default" style="font-size:.7rem;padding:.2rem .5rem" onclick="event.stopPropagation();replayRequest(${r.id})">↻ Replay</button></td>
                 </tr>`).join('')}
           </tbody>
         </table>
@@ -411,6 +412,45 @@ function startInterval() {
 function stopInterval() { if (intervalId) { clearInterval(intervalId); intervalId = null; } }
 
 async function refresh() { await fetchAll(); if (selectedTunnel) await fetchRequests(selectedTunnel); }
+
+async function replayRequest(id) {
+  try {
+    const res = await fetch(API + '/api/stats/replay/' + id, { method: 'POST' });
+    if (!res.ok) { alert('Replay failed: ' + await res.text()); return; }
+    const data = await res.json();
+    // Refresh to show the new request entry, then show the replay result
+    if (selectedTunnel) await fetchRequests(selectedTunnel);
+    renderDetail();
+    showReplayResult(data);
+  } catch (e) { alert('Replay error: ' + e.message); }
+}
+
+function showReplayResult(data) {
+  let body = data.body || '';
+  try { body = JSON.stringify(JSON.parse(body), null, 2); } catch {}
+  const el = document.getElementById('modal-root');
+  el.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div class="modal-head-title">
+            <span style="font-size:.875rem;font-weight:600">Replay Result</span>
+            <span class="mono ${statusClass(data.status)}" style="font-size:.875rem">${data.status}</span>
+            <span class="text-muted" style="font-size:.75rem">${formatLatency(data.latency_ms)}</span>
+          </div>
+          <button class="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-tabs">
+          <button class="modal-tab active" onclick="this.parentElement.nextElementSibling.innerHTML=renderHeaders(window._replayHeaders);this.classList.add('active');this.nextElementSibling.classList.remove('active')">Headers</button>
+          <button class="modal-tab" onclick="this.parentElement.nextElementSibling.innerHTML=renderBody(window._replayBody);this.classList.add('active');this.previousElementSibling.classList.remove('active')">Body</button>
+        </div>
+        <div class="modal-body">${renderHeaders(data.headers)}</div>
+      </div>
+    </div>`;
+  window._replayHeaders = data.headers;
+  window._replayBody = data.body;
+  el.style.display = 'block';
+}
 
 // --- Detail modal ---
 let modalTab = 'req-headers';

@@ -220,6 +220,29 @@ func (s *Store) RecentLogs(n int) []RequestEntry {
 	return out
 }
 
+// GetByID returns a single request entry by ID, or nil if not found.
+func (s *Store) GetByID(id int) *RequestEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i := range s.logs {
+		if s.logs[i].ID == id {
+			cp := s.logs[i]
+			return &cp
+		}
+	}
+	return nil
+}
+
+// PortForSubdomain returns the local port for a connected subdomain.
+func (s *Store) PortForSubdomain(subdomain string) (int, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if ts, ok := s.tunnels[subdomain]; ok {
+		return ts.Port, true
+	}
+	return 0, false
+}
+
 // --- Plugin wiring ---
 
 // Plugin implements hooks.Plugin for in-memory stats collection.
