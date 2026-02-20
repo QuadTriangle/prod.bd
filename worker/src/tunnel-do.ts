@@ -5,6 +5,7 @@ import {
     collectHeaders, encodeBase64,
     forwardVisitorFrame, deliverFrameToVisitor,
 } from "./ws-proxy";
+import { errorPage } from "./error-page";
 
 // --- HTTP tunnel protocol types ---
 const TYPE_HTTP_REQUEST = "http-request";
@@ -82,7 +83,7 @@ export class TunnelDO extends DurableObject {
         const subdomain = url.hostname.split(".")[0];
         const tunnelWs = this.getTunnelSocket(subdomain);
         if (!tunnelWs || tunnelWs.readyState !== WebSocket.OPEN) {
-            return new Response("Tunnel not connected", { status: 502 });
+            return errorPage(502, 1, "Tunnel agent is not connected. Start the CLI to establish a tunnel.", subdomain);
         }
 
         // Visitor WebSocket upgrade
@@ -284,7 +285,7 @@ export class TunnelDO extends DurableObject {
         return new Promise<Response>((resolve) => {
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(reqId);
-                resolve(new Response("Gateway Timeout", { status: 504 }));
+                resolve(errorPage(504, 2, "Agent did not respond within 30 seconds. Your service may be overloaded or unresponsive.", subdomain));
             }, 30000);
 
             this.pendingRequests.set(reqId, {
@@ -294,6 +295,15 @@ export class TunnelDO extends DurableObject {
                     const body = resp.body
                         ? Uint8Array.from(atob(resp.body), (c) => c.charCodeAt(0))
                         : null;
+
+                    // Detect CLI proxy errors (agent reached, but service failed)
+                    if (resp.status === 502 && body) {
+                        const text = new TextDecoder().decode(body);
+                        if (text.startsWith("Failed to connect to")) {
+                            resolve(errorPage(502, 2, text, subdomain));
+                            return;
+                        }
+                    }
 
                     const respHeaders = new Headers();
                     if (resp.headers) {
@@ -308,7 +318,7 @@ export class TunnelDO extends DurableObject {
                 },
                 reject: (err) => {
                     clearTimeout(timeout);
-                    resolve(new Response("Tunnel Error: " + err.message, { status: 502 }));
+                    resolve(errorPage(502, 1, "Tunnel connection lost: " + err.message, subdomain));
                 },
             });
 
@@ -317,7 +327,7 @@ export class TunnelDO extends DurableObject {
             } catch {
                 this.pendingRequests.delete(reqId);
                 clearTimeout(timeout);
-                resolve(new Response("Tunnel disconnected during request", { status: 502 }));
+                resolve(errorPage(502, 1, "Tunnel agent disconnected while sending request.", subdomain));
             }
         });
     }
