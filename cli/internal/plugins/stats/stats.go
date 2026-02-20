@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -22,6 +24,7 @@ type InterceptRule struct {
 	ID           int               `json:"id"`
 	PathPattern  string            `json:"path_pattern"`             // regex to match request path
 	Methods      []string          `json:"methods,omitempty"`        // empty = all methods
+	MatchHeaders map[string]string `json:"match_headers,omitempty"`  // headers to match
 	Action       string            `json:"action"`                   // "modify-request", "modify-response", "pause", "mock"
 	SetHeaders   map[string]string `json:"set_headers,omitempty"`    // headers to add/override
 	SetStatus    int               `json:"set_status,omitempty"`     // override response status
@@ -31,7 +34,7 @@ type InterceptRule struct {
 	compiled     *regexp.Regexp
 }
 
-func (r *InterceptRule) matches(method, path string) bool {
+func (r *InterceptRule) matches(method, path string, headers map[string][]string) bool {
 	if !r.Enabled {
 		return false
 	}
@@ -45,6 +48,27 @@ func (r *InterceptRule) matches(method, path string) bool {
 		}
 		if !found {
 			return false
+		}
+	}
+	if len(r.MatchHeaders) > 0 {
+		for k, exp := range r.MatchHeaders {
+			has := false
+			for reqK, reqVals := range headers {
+				if strings.EqualFold(reqK, k) {
+					for _, v := range reqVals {
+						if strings.EqualFold(v, exp) || exp == "*" {
+							has = true
+							break
+						}
+					}
+					if has {
+						break
+					}
+				}
+			}
+			if !has {
+				return false
+			}
 		}
 	}
 	if r.compiled == nil {
@@ -80,6 +104,8 @@ type RequestEntry struct {
 	ResponseBody    string
 	ContentType     string   // response content-type for quick display
 	Tags            []string // user-defined tags
+	TruncatedBody   bool     // indicates if body > 64KB
+	Upstream        string
 }
 
 // SavedRequest is a named request template for the composer (like Postman collections).
@@ -88,9 +114,9 @@ type SavedRequest struct {
 	Name       string      `json:"name"`
 	Method     string      `json:"method"`
 	Path       string      `json:"path"`
-	Params     []KVPair    `json:"params,omitempty"`     // query params
-	Headers    []KVPair    `json:"headers,omitempty"`    // request headers
-	BodyType   string      `json:"body_type"`            // "none", "json", "form", "raw"
+	Params     []KVPair    `json:"params,omitempty"`  // query params
+	Headers    []KVPair    `json:"headers,omitempty"` // request headers
+	BodyType   string      `json:"body_type"`         // "none", "json", "form", "raw"
 	Body       string      `json:"body,omitempty"`
 	Assertions []Assertion `json:"assertions,omitempty"` // response assertions
 	Created    int64       `json:"created"`
@@ -127,12 +153,13 @@ type WSMessage struct {
 // UpstreamRoute defines a routing rule: requests matching the pattern go to the target URL.
 type UpstreamRoute struct {
 	ID          int      `json:"id"`
-	Subdomain   string   `json:"subdomain"`              // which tunnel this applies to ("*" = all)
-	PathPattern string   `json:"path_pattern"`            // regex to match request path
-	Methods     []string `json:"methods,omitempty"`       // empty = all methods
-	Target      string   `json:"target"`                  // upstream base URL e.g. "https://api.prod.com"
+	Subdomain   string   `json:"subdomain"`         // which tunnel this applies to ("*" = all)
+	PathPattern string   `json:"path_pattern"`      // regex to match request path
+	Methods     []string `json:"methods,omitempty"` // empty = all methods
+	Target      string   `json:"target"`            // upstream base URL e.g. "https://api.prod.com"
+	Rewrite     string   `json:"rewrite,omitempty"` // regex replacement for path
 	Enabled     bool     `json:"enabled"`
-	Priority    int      `json:"priority"`                // higher = checked first
+	Priority    int      `json:"priority"` // higher = checked first
 	compiled    *regexp.Regexp
 }
 
@@ -200,6 +227,8 @@ type Store struct {
 	tunnelOrder      []string
 	logs             []RequestEntry
 	maxLogs          int
+	logHead          int
+	logCount         int
 	nextID           int
 	pendingSubdomain sync.Map // goroutine ID -> subdomain
 
@@ -212,6 +241,9 @@ type Store struct {
 	pausedMu sync.Mutex
 	paused   map[string]*PausedRequest
 
+	// Caching target urls from BeforeProxy to ResolveHTTP
+	resolvedTargets sync.Map
+
 	// Saved requests (composer collections)
 	savedMu     sync.RWMutex
 	saved       []SavedRequest
@@ -222,11 +254,12 @@ type Store struct {
 	wsMessages []WSMessage
 	maxWSMsgs  int
 	nextWSID   int
+	wsSenders  map[string]func(isText bool, payload []byte) error
 
 	// Upstream routes: path-based routing rules per subdomain
-	upstreamMu      sync.RWMutex
-	upstreams       []UpstreamRoute
-	nextUpstreamID  int
+	upstreamMu     sync.RWMutex
+	upstreams      []UpstreamRoute
+	nextUpstreamID int
 }
 
 // PausedRequest holds a paused request with its data so the UI can display/edit it.
@@ -245,12 +278,95 @@ type EditedRequest struct {
 }
 
 func NewStore(maxLogs int) *Store {
-	return &Store{
+	s := &Store{
 		tunnels:   make(map[string]*TunnelStats),
 		maxLogs:   maxLogs,
+		logs:      make([]RequestEntry, maxLogs),
 		paused:    make(map[string]*PausedRequest),
 		maxWSMsgs: maxLogs,
+		wsSenders: make(map[string]func(isText bool, payload []byte) error),
 	}
+	s.LoadState()
+	return s
+}
+
+// --- Persistence ---
+
+func getStatsFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".prod")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, "stats.json")
+}
+
+type StatsState struct {
+	Intercepts []InterceptRule `json:"intercepts"`
+	Upstreams  []UpstreamRoute `json:"upstreams"`
+	Saved      []SavedRequest  `json:"saved"`
+}
+
+func (s *Store) SaveState() {
+	p := getStatsFilePath()
+	if p == "" {
+		return
+	}
+	st := StatsState{
+		Intercepts: s.ListIntercepts(),
+		Upstreams:  s.ListUpstreams(),
+		Saved:      s.ListSaved(),
+	}
+	b, _ := json.MarshalIndent(st, "", "  ")
+	os.WriteFile(p, b, 0644)
+}
+
+func (s *Store) LoadState() {
+	p := getStatsFilePath()
+	if p == "" {
+		return
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	var st StatsState
+	if err := json.Unmarshal(b, &st); err != nil {
+		return
+	}
+	s.interceptMu.Lock()
+	s.intercepts = st.Intercepts
+	for i := range s.intercepts {
+		if s.intercepts[i].PathPattern != "" {
+			s.intercepts[i].compiled, _ = regexp.Compile(s.intercepts[i].PathPattern)
+		}
+		if s.intercepts[i].ID > s.nextInterceptID {
+			s.nextInterceptID = s.intercepts[i].ID
+		}
+	}
+	s.interceptMu.Unlock()
+
+	s.upstreamMu.Lock()
+	s.upstreams = st.Upstreams
+	for i := range s.upstreams {
+		if s.upstreams[i].PathPattern != "" {
+			s.upstreams[i].compiled, _ = regexp.Compile(s.upstreams[i].PathPattern)
+		}
+		if s.upstreams[i].ID > s.nextUpstreamID {
+			s.nextUpstreamID = s.upstreams[i].ID
+		}
+	}
+	s.upstreamMu.Unlock()
+
+	s.savedMu.Lock()
+	s.saved = st.Saved
+	for i := range s.saved {
+		if s.saved[i].ID > s.nextSavedID {
+			s.nextSavedID = s.saved[i].ID
+		}
+	}
+	s.savedMu.Unlock()
 }
 
 // --- Intercept rule CRUD ---
@@ -266,6 +382,8 @@ func (s *Store) AddIntercept(rule InterceptRule) (InterceptRule, error) {
 	s.nextInterceptID++
 	rule.ID = s.nextInterceptID
 	s.intercepts = append(s.intercepts, rule)
+	s.interceptMu.Unlock()
+	s.SaveState()
 	return rule, nil
 }
 
@@ -289,9 +407,12 @@ func (s *Store) UpdateIntercept(id int, rule InterceptRule) (InterceptRule, erro
 			rule.ID = id
 			rule.compiled = compiled
 			s.intercepts[i] = rule
+			s.interceptMu.Unlock()
+			s.SaveState()
 			return rule, nil
 		}
 	}
+	s.interceptMu.Unlock()
 	return InterceptRule{}, fmt.Errorf("rule %d not found", id)
 }
 
@@ -301,18 +422,21 @@ func (s *Store) DeleteIntercept(id int) bool {
 	for i := range s.intercepts {
 		if s.intercepts[i].ID == id {
 			s.intercepts = append(s.intercepts[:i], s.intercepts[i+1:]...)
+			s.interceptMu.Unlock()
+			s.SaveState()
 			return true
 		}
 	}
+	s.interceptMu.Unlock()
 	return false
 }
 
-func (s *Store) MatchingIntercepts(method, path string) []InterceptRule {
+func (s *Store) MatchingIntercepts(method, path string, headers map[string][]string) []InterceptRule {
 	s.interceptMu.RLock()
 	defer s.interceptMu.RUnlock()
 	var out []InterceptRule
 	for _, r := range s.intercepts {
-		if r.matches(method, path) {
+		if r.matches(method, path, headers) {
 			out = append(out, r)
 		}
 	}
@@ -332,6 +456,8 @@ func (s *Store) AddUpstream(route UpstreamRoute) (UpstreamRoute, error) {
 	s.nextUpstreamID++
 	route.ID = s.nextUpstreamID
 	s.upstreams = append(s.upstreams, route)
+	s.upstreamMu.Unlock()
+	s.SaveState()
 	return route, nil
 }
 
@@ -355,9 +481,12 @@ func (s *Store) UpdateUpstream(id int, route UpstreamRoute) (UpstreamRoute, erro
 			route.ID = id
 			route.compiled = compiled
 			s.upstreams[i] = route
+			s.upstreamMu.Unlock()
+			s.SaveState()
 			return route, nil
 		}
 	}
+	s.upstreamMu.Unlock()
 	return UpstreamRoute{}, fmt.Errorf("upstream %d not found", id)
 }
 
@@ -367,14 +496,17 @@ func (s *Store) DeleteUpstream(id int) bool {
 	for i := range s.upstreams {
 		if s.upstreams[i].ID == id {
 			s.upstreams = append(s.upstreams[:i], s.upstreams[i+1:]...)
+			s.upstreamMu.Unlock()
+			s.SaveState()
 			return true
 		}
 	}
+	s.upstreamMu.Unlock()
 	return false
 }
 
-// ResolveUpstream finds the highest-priority matching upstream for a request.
-func (s *Store) ResolveUpstream(subdomain, method, path string) string {
+// MatchUpstream finds the highest-priority matching upstream for a request.
+func (s *Store) MatchUpstream(subdomain, method, path string) *UpstreamRoute {
 	s.upstreamMu.RLock()
 	defer s.upstreamMu.RUnlock()
 	best := -1
@@ -386,7 +518,17 @@ func (s *Store) ResolveUpstream(subdomain, method, path string) string {
 		}
 	}
 	if best >= 0 {
-		return s.upstreams[best].Target
+		cp := s.upstreams[best]
+		return &cp
+	}
+	return nil
+}
+
+// ResolveUpstream finds the target URL of the highest-priority matching upstream.
+func (s *Store) ResolveUpstream(subdomain, method, path string) string {
+	r := s.MatchUpstream(subdomain, method, path)
+	if r != nil {
+		return r.Target
 	}
 	return ""
 }
@@ -431,11 +573,12 @@ func (s *Store) ListPaused() map[string]*PausedRequest {
 
 func (s *Store) AddSaved(sr SavedRequest) SavedRequest {
 	s.savedMu.Lock()
-	defer s.savedMu.Unlock()
 	s.nextSavedID++
 	sr.ID = s.nextSavedID
 	sr.Created = time.Now().Unix()
 	s.saved = append(s.saved, sr)
+	s.savedMu.Unlock()
+	s.SaveState()
 	return sr
 }
 
@@ -455,9 +598,12 @@ func (s *Store) UpdateSaved(id int, sr SavedRequest) (SavedRequest, bool) {
 			sr.ID = id
 			sr.Created = s.saved[i].Created
 			s.saved[i] = sr
+			s.savedMu.Unlock()
+			s.SaveState()
 			return sr, true
 		}
 	}
+	s.savedMu.Unlock()
 	return SavedRequest{}, false
 }
 
@@ -467,9 +613,12 @@ func (s *Store) DeleteSaved(id int) bool {
 	for i := range s.saved {
 		if s.saved[i].ID == id {
 			s.saved = append(s.saved[:i], s.saved[i+1:]...)
+			s.savedMu.Unlock()
+			s.SaveState()
 			return true
 		}
 	}
+	s.savedMu.Unlock()
 	return false
 }
 
@@ -510,7 +659,19 @@ func (s *Store) RecordDisconnect(subdomain string) {
 	}
 }
 
-func (s *Store) RecordRequest(subdomain string, req types.TunnelRequest, resp types.TunnelResponse, latency time.Duration) {
+func isBinaryContentType(headers map[string][]string) bool {
+	for k, v := range headers {
+		if strings.EqualFold(k, "content-type") && len(v) > 0 {
+			ct := strings.ToLower(v[0])
+			if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") || strings.HasPrefix(ct, "application/octet-stream") || strings.HasPrefix(ct, "application/pdf") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Store) RecordRequest(subdomain, upstream string, req types.TunnelRequest, resp types.TunnelResponse, latency time.Duration) {
 	bytesIn := len(req.Body)
 	if req.Body != "" {
 		if decoded, err := base64.StdEncoding.DecodeString(req.Body); err == nil {
@@ -525,14 +686,34 @@ func (s *Store) RecordRequest(subdomain string, req types.TunnelRequest, resp ty
 	}
 
 	var reqBody, respBody string
+	var truncated bool
+	binReq := isBinaryContentType(req.Headers)
+	binResp := isBinaryContentType(resp.Headers)
+
 	if req.Body != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(req.Body); err == nil && len(decoded) < 64_000 {
-			reqBody = string(decoded)
+		if decoded, err := base64.StdEncoding.DecodeString(req.Body); err == nil {
+			if len(decoded) < 64_000 {
+				if binReq {
+					reqBody = req.Body
+				} else {
+					reqBody = string(decoded)
+				}
+			} else {
+				truncated = true
+			}
 		}
 	}
 	if resp.Body != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(resp.Body); err == nil && len(decoded) < 64_000 {
-			respBody = string(decoded)
+		if decoded, err := base64.StdEncoding.DecodeString(resp.Body); err == nil {
+			if len(decoded) < 64_000 {
+				if binResp {
+					respBody = resp.Body
+				} else {
+					respBody = string(decoded)
+				}
+			} else {
+				truncated = true
+			}
 		}
 	}
 
@@ -561,6 +742,8 @@ func (s *Store) RecordRequest(subdomain string, req types.TunnelRequest, resp ty
 		ResponseHeaders: resp.Headers,
 		ResponseBody:    respBody,
 		ContentType:     contentType,
+		TruncatedBody:   truncated,
+		Upstream:        upstream,
 	}
 
 	s.mu.Lock()
@@ -569,10 +752,10 @@ func (s *Store) RecordRequest(subdomain string, req types.TunnelRequest, resp ty
 	s.nextID++
 	entry.ID = s.nextID
 
-	if len(s.logs) >= s.maxLogs {
-		s.logs = append(s.logs[1:], entry)
-	} else {
-		s.logs = append(s.logs, entry)
+	s.logs[s.logHead] = entry
+	s.logHead = (s.logHead + 1) % s.maxLogs
+	if s.logCount < s.maxLogs {
+		s.logCount++
 	}
 
 	if ts, ok := s.tunnels[subdomain]; ok {
@@ -608,18 +791,26 @@ func (s *Store) Snapshot() []TunnelStats {
 func (s *Store) RecentLogs(n int) []RequestEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if n > len(s.logs) {
-		n = len(s.logs)
+	if n > s.logCount {
+		n = s.logCount
 	}
 	out := make([]RequestEntry, n)
-	copy(out, s.logs[len(s.logs)-n:])
+
+	start := (s.logHead - n + s.maxLogs) % s.maxLogs
+	if start+n <= s.maxLogs {
+		copy(out, s.logs[start:start+n])
+	} else {
+		part1 := s.maxLogs - start
+		copy(out, s.logs[start:])
+		copy(out[part1:], s.logs[:n-part1])
+	}
 	return out
 }
 
 func (s *Store) GetByID(id int) *RequestEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for i := range s.logs {
+	for i := 0; i < s.logCount; i++ {
 		if s.logs[i].ID == id {
 			cp := s.logs[i]
 			return &cp
@@ -628,11 +819,25 @@ func (s *Store) GetByID(id int) *RequestEntry {
 	return nil
 }
 
+func (s *Store) UpdateTags(id int, tags []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := 0; i < s.maxLogs; i++ {
+		if s.logs[i].ID == id {
+			s.logs[i].Tags = tags
+			s.SaveState()
+			return
+		}
+	}
+}
+
 // ClearLogs removes all request log entries and resets the ID counter.
 func (s *Store) ClearLogs() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.logs = nil
+	s.logs = make([]RequestEntry, s.maxLogs)
+	s.logHead = 0
+	s.logCount = 0
 	s.nextID = 0
 }
 
@@ -642,8 +847,9 @@ func (s *Store) SearchLogs(query string, limit int) []RequestEntry {
 	defer s.mu.RUnlock()
 	q := strings.ToLower(query)
 	var out []RequestEntry
-	for i := len(s.logs) - 1; i >= 0 && len(out) < limit; i-- {
-		e := s.logs[i]
+	for i := 0; i < s.logCount && len(out) < limit; i++ {
+		idx := (s.logHead - 1 - i + s.maxLogs) % s.maxLogs
+		e := s.logs[idx]
 		if strings.Contains(strings.ToLower(e.Path), q) ||
 			strings.Contains(strings.ToLower(e.RequestBody), q) ||
 			strings.Contains(strings.ToLower(e.ResponseBody), q) {
@@ -796,6 +1002,7 @@ func extractJSONPath(body, path string) string {
 
 type Plugin struct {
 	dashboardPort int
+	dashboardAuth string
 	store         *Store
 	server        *Server
 }
@@ -809,6 +1016,7 @@ func New() *Plugin {
 func (p *Plugin) Name() string { return "stats" }
 func (p *Plugin) RegisterFlags(fs *flag.FlagSet) {
 	fs.IntVar(&p.dashboardPort, "dashboard-port", 9999, "Stats dashboard port (0 to disable stats entirely)")
+	fs.StringVar(&p.dashboardAuth, "dashboard-auth", "", "Basic auth for dashboard (user:pass).")
 }
 func (p *Plugin) Enabled() bool                { return p.dashboardPort > 0 }
 func (p *Plugin) WorkerConfig() map[string]any { return nil }
@@ -830,6 +1038,13 @@ func (p *Plugin) ProxyHooks() []hooks.ProxyHook {
 	return []hooks.ProxyHook{&upstreamHook{store: p.store}}
 }
 
+func (p *Plugin) ExtraPorts() []int {
+	if p.dashboardAuth != "" && p.dashboardPort > 0 {
+		return []int{p.dashboardPort}
+	}
+	return nil
+}
+
 func (p *Plugin) Store() *Store { return p.store }
 
 func (p *Plugin) broadcast(event string, data any) {
@@ -842,7 +1057,7 @@ func (p *Plugin) startDashboard() {
 	if p.dashboardPort == 0 || p.server != nil {
 		return
 	}
-	srv, err := StartServer(p.store, p.dashboardPort)
+	srv, err := StartServer(p.store, p.dashboardPort, p.dashboardAuth)
 	if err != nil {
 		log.Printf("[stats] failed to start dashboard server: %v", err)
 		return
@@ -860,6 +1075,9 @@ type upstreamHook struct {
 }
 
 func (h *upstreamHook) ResolveHTTP(subdomain string, req types.TunnelRequest) string {
+	if val, ok := h.store.resolvedTargets.LoadAndDelete(req.ID); ok {
+		return val.(string)
+	}
 	return h.store.ResolveUpstream(subdomain, req.Method, req.Path)
 }
 
@@ -877,26 +1095,49 @@ type reqHook struct {
 type reqMeta struct {
 	start     time.Time
 	subdomain string
+	upstream  string
 }
 
 func (h *reqHook) BeforeProxy(req types.TunnelRequest) types.TunnelRequest {
 	subdomain := h.store.ConsumePendingSubdomain()
-	h.pending.Store(req.ID, reqMeta{start: time.Now(), subdomain: subdomain})
+
+	// Pre-resolve upstream to record it and apply any rewrite
+	r := h.store.MatchUpstream(subdomain, req.Method, req.Path)
+	upstream := ""
+	if r != nil {
+		upstream = r.Target
+		// Cache for ResolveHTTP so it doesn't fail when path is rewritten
+		h.store.resolvedTargets.Store(req.ID, r.Target)
+		if r.Rewrite != "" && r.compiled != nil {
+			req.Path = r.compiled.ReplaceAllString(req.Path, r.Rewrite)
+		}
+	} else {
+		if ts, ok := h.store.tunnels[subdomain]; ok {
+			upstream = fmt.Sprintf("http://localhost:%d", ts.Port)
+		} else {
+			upstream = "local default"
+		}
+	}
+
+	h.pending.Store(req.ID, reqMeta{start: time.Now(), subdomain: subdomain, upstream: upstream})
 	return req
 }
 
 func (h *reqHook) AfterProxy(req types.TunnelRequest, resp types.TunnelResponse) types.TunnelResponse {
 	var latency time.Duration
 	subdomain := ""
+	upstream := ""
 	if v, ok := h.pending.LoadAndDelete(req.ID); ok {
 		meta := v.(reqMeta)
 		latency = time.Since(meta.start)
 		subdomain = meta.subdomain
+		upstream = meta.upstream
 	}
-	h.store.RecordRequest(subdomain, req, resp, latency)
+	h.store.RecordRequest(subdomain, upstream, req, resp, latency)
 	h.plugin.broadcast("request", map[string]any{
 		"subdomain": subdomain, "method": req.Method, "path": req.Path,
 		"status": resp.Status, "latency_ms": latency.Milliseconds(),
+		"upstream": upstream,
 	})
 	return resp
 }
@@ -929,6 +1170,18 @@ type wsHook struct {
 	plugin *Plugin
 }
 
+func (h *wsHook) OnWSSessionStart(subdomain, sessionID string, sender func(isText bool, payload []byte) error) {
+	h.store.wsMu.Lock()
+	h.store.wsSenders[sessionID] = sender
+	h.store.wsMu.Unlock()
+}
+
+func (h *wsHook) OnWSSessionEnd(subdomain, sessionID string) {
+	h.store.wsMu.Lock()
+	delete(h.store.wsSenders, sessionID)
+	h.store.wsMu.Unlock()
+}
+
 func (h *wsHook) OnWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int) {
 	h.store.RecordWSMessage(subdomain, sessionID, direction, isText, payload, size)
 	h.plugin.broadcast("ws_frame", map[string]any{
@@ -944,7 +1197,7 @@ type interceptHook struct {
 }
 
 func (h *interceptHook) BeforeProxy(req types.TunnelRequest) types.TunnelRequest {
-	rules := h.store.MatchingIntercepts(req.Method, req.Path)
+	rules := h.store.MatchingIntercepts(req.Method, req.Path, req.Headers)
 	for _, rule := range rules {
 		switch rule.Action {
 		case "pause":
@@ -987,7 +1240,7 @@ func (h *interceptHook) BeforeProxy(req types.TunnelRequest) types.TunnelRequest
 }
 
 func (h *interceptHook) AfterProxy(req types.TunnelRequest, resp types.TunnelResponse) types.TunnelResponse {
-	rules := h.store.MatchingIntercepts(req.Method, req.Path)
+	rules := h.store.MatchingIntercepts(req.Method, req.Path, req.Headers)
 	for _, rule := range rules {
 		switch rule.Action {
 		case "modify-response":

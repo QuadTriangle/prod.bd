@@ -205,6 +205,9 @@ export const api = {
   clearWSMessages: (): Promise<void> =>
     del('/api/stats/ws/messages'),
 
+  sendWSSession: (session_id: string, is_text: boolean, payload: string): Promise<void> =>
+    post<void>('/api/stats/ws/send', { session_id, is_text, payload }),
+
   runCollection: (subdomain: string, ids?: number[]): Promise<RunResult[]> =>
     post<{ results: RunResult[] }>('/api/stats/run', { subdomain, ids })
       .then(r => r.results ?? []),
@@ -221,4 +224,7 @@ export const api = {
 
   deleteUpstream: (id: number): Promise<void> =>
     del(`/api/stats/upstreams/${id}`),
+
+  updateTags: (id: number, tags: string[]): Promise<void> =>
+    put<void>(`/api/stats/requests/${id}/tags`, { tags }),
 };

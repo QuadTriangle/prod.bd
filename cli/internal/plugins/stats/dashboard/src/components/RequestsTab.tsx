@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Tunnel, RequestEntry } from '../lib/types';
 import { formatBytes, formatLatency, timeAgo, statusColor, methodColor, contentTypeShort, METHODS } from '../lib/utils';
 import { api } from '../lib/api';
@@ -18,10 +18,36 @@ interface Props {
 export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComposerFrom, onOpenDiff }: Props) {
   const [filterMethod, setFilterMethod] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [filterType, setFilterType] = useState('ALL');
   const [searchPath, setSearchPath] = useState('');
   const [modalReq, setModalReq] = useState<RequestEntry | null>(null);
   const [replayResult, setReplayResult] = useState<SendResult | null>(null);
   const [diffSelect, setDiffSelect] = useState<RequestEntry | null>(null);
+
+  const initRef = useRef(false);
+
+  useEffect(() => {
+    if (initRef.current || requests.length === 0) return;
+    initRef.current = true;
+    const hash = window.location.hash;
+    if (hash) {
+      const p = new URLSearchParams(hash.slice(1));
+      const reqId = p.get('req');
+      if (reqId) {
+        const req = requests.find(r => r.id === Number(reqId));
+        if (req) setModalReq(req);
+      }
+    }
+  }, [requests]);
+
+  const handleOpenModal = (req: RequestEntry | null) => {
+    setModalReq(req);
+    const hash = window.location.hash;
+    const p = new URLSearchParams(hash ? hash.slice(1) : '');
+    if (req) p.set('req', String(req.id));
+    else p.delete('req');
+    window.history.replaceState(null, '', '#' + p.toString());
+  };
 
   const filtered = requests.filter(request => {
     if (filterMethod !== 'ALL' && request.method !== filterMethod) return false;
@@ -29,6 +55,7 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
     if (filterStatus === '3xx' && (request.status < 300 || request.status >= 400)) return false;
     if (filterStatus === '4xx' && (request.status < 400 || request.status >= 500)) return false;
     if (filterStatus === '5xx' && request.status < 500) return false;
+    if (filterType !== 'ALL' && !getContentType(request).toLowerCase().includes(filterType.toLowerCase())) return false;
     if (searchPath && !request.path.toLowerCase().includes(searchPath.toLowerCase())) return false;
     return true;
   });
@@ -64,7 +91,7 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
   };
 
   const editAndResend = (request: RequestEntry) => {
-    setModalReq(null);
+    handleOpenModal(null);
     onOpenComposerFrom?.(request);
   };
 
@@ -99,6 +126,10 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
             <option value="ALL">All Status</option>
             {['2xx', '3xx', '4xx', '5xx'].map(statusRange => <option key={statusRange} value={statusRange}>{statusRange}</option>)}
           </select>
+          <select className={selectCls} value={filterType} onChange={e => setFilterType(e.target.value)}>
+            <option value="ALL">All Types</option>
+            {['json', 'html', 'xml', 'text', 'event-stream'].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
           <button onClick={clearLogs} className="text-xs px-3 py-1.5 rounded-lg bg-input-bg text-input-text border-none cursor-pointer hover:bg-dim">
             🗑 Clear
           </button>
@@ -113,7 +144,7 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
-                {['Method', 'Path', 'Status', 'Type', 'Latency', 'Size', 'Time', ''].map(heading => (
+                {['Method', 'Path', 'Upstream', 'Status', 'Type', 'Latency', 'Size', 'Time', ''].map(heading => (
                   <th key={heading} className="text-left px-4 py-2 text-[.7rem] text-muted uppercase tracking-wider border-b border-border font-medium">
                     {heading}
                   </th>
@@ -122,7 +153,7 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={8} className="text-center text-dim py-8">No requests yet</td></tr>
+                <tr><td colSpan={9} className="text-center text-dim py-8">No requests yet</td></tr>
               ) : (
                 filtered.map(request => (
                   <tr key={request.id} className={`cursor-pointer hover:bg-hover-bg ${diffSelect?.id === request.id ? 'bg-accent/5' : ''}`} onClick={() => {
@@ -130,13 +161,14 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
                       onOpenDiff?.(diffSelect, request);
                       setDiffSelect(null);
                     } else {
-                      setModalReq(request);
+                      handleOpenModal(request);
                     }
                   }}>
                     <td className="px-4 py-2 border-b border-td-border">
                       <span className={`px-1.5 py-0.5 rounded text-[.7rem] mono font-bold ${methodColor(request.method)}`}>{request.method}</span>
                     </td>
                     <td className="px-4 py-2 border-b border-td-border mono text-muted text-xs max-w-80 overflow-hidden text-ellipsis whitespace-nowrap" title={request.path}>{request.path}</td>
+                    <td className="px-4 py-2 border-b border-td-border mono text-muted text-xs max-w-40 overflow-hidden text-ellipsis whitespace-nowrap" title={request.upstream}>{request.upstream || '-'}</td>
                     <td className={`px-4 py-2 border-b border-td-border mono ${statusColor(request.status)}`}>{request.status}</td>
                     <td className="px-4 py-2 border-b border-td-border text-dim text-[.7rem]">{getContentType(request)}</td>
                     <td className="px-4 py-2 border-b border-td-border text-muted">{formatLatency(request.latency_ms)}</td>
@@ -160,7 +192,7 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
       {modalReq && (
         <DetailModal
           request={modalReq}
-          onClose={() => setModalReq(null)}
+          onClose={() => handleOpenModal(null)}
           showToast={showToast}
           onReplay={replayReq}
           onCopyCurl={copyCurl}

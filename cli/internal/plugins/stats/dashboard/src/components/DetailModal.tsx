@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { RequestEntry } from '../lib/types';
 import { formatBytes, formatLatency, statusColor, methodColor } from '../lib/utils';
 import { JsonViewer } from './JsonViewer';
+import { api } from '../lib/api';
 
 interface Props {
   request: RequestEntry;
@@ -23,16 +24,21 @@ export function DetailModal({ request, onClose, showToast, onReplay, onCopyCurl,
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const contentTypeHeader = request.response_headers
+  const reqContentType = request.request_headers
+    ? Object.entries(request.request_headers).find(([key]) => key.toLowerCase() === 'content-type')?.[1]
+    : null;
+  const reqCTLabel = reqContentType ? (Array.isArray(reqContentType) ? reqContentType[0] : reqContentType) : '';
+
+  const resContentType = request.response_headers
     ? Object.entries(request.response_headers).find(([key]) => key.toLowerCase() === 'content-type')?.[1]
     : null;
-  const contentTypeLabel = contentTypeHeader ? (Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader) : '';
+  const resCTLabel = resContentType ? (Array.isArray(resContentType) ? resContentType[0] : resContentType) : '';
 
   let content: React.ReactNode;
   if (tab === 'Request Headers') content = <HeadersView headers={request.request_headers} />;
   else if (tab === 'Response Headers') content = <HeadersView headers={request.response_headers} />;
-  else if (tab === 'Request Body') content = <BodyView body={request.request_body} showToast={showToast} />;
-  else content = <BodyView body={request.response_body} showToast={showToast} />;
+  else if (tab === 'Request Body') content = <BodyView body={request.request_body} truncated={request.truncated} showToast={showToast} contentType={reqCTLabel} />;
+  else content = <BodyView body={request.response_body} truncated={request.truncated} showToast={showToast} contentType={resCTLabel} />;
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center backdrop-blur-sm" onClick={onClose}>
@@ -44,7 +50,9 @@ export function DetailModal({ request, onClose, showToast, onReplay, onCopyCurl,
             <span className={`mono text-sm ${statusColor(request.status)}`}>{request.status}</span>
             <span className="text-muted text-xs">{formatLatency(request.latency_ms)}</span>
             <span className="text-muted text-xs">{formatBytes(request.bytes_in + request.bytes_out)}</span>
-            {contentTypeLabel && <span className="text-dim text-[.65rem]">{contentTypeLabel.split(';')[0]}</span>}
+            {resCTLabel && <span className="text-dim text-[.65rem]">{resCTLabel.split(';')[0]}</span>}
+            {request.truncated && <span className="text-accent text-[.65rem] uppercase font-bold tracking-widest pl-2">Truncated (&gt;64KB)</span>}
+            <TagsEditor request={request} showToast={showToast} />
           </div>
           <div className="flex items-center gap-1.5">
             <IconBtn title="Replay" onClick={() => onReplay(request.id)}>↻</IconBtn>
@@ -90,11 +98,21 @@ function HeadersView({ headers }: { headers?: Record<string, string[]> }) {
   );
 }
 
-function BodyView({ body, showToast }: { body?: string; showToast: (msg: string) => void }) {
-  if (!body) return <div className="text-dim text-sm text-center py-8">No body</div>;
+function BodyView({ body, truncated, showToast, contentType }: { body?: string; truncated?: boolean; showToast: (msg: string) => void; contentType?: string }) {
+  if (!body) return <div className="text-dim text-sm text-center py-8">{truncated ? "Body was too large (>64KB) and was dropped." : "No body"}</div>;
+  if (contentType?.toLowerCase().startsWith('image/')) {
+    return (
+      <div className="bg-pre-bg border border-border rounded-lg p-4 flex justify-center overflow-auto items-center min-h-[200px]">
+        <img src={`data:${contentType.split(';')[0]};base64,${body}`} className="max-w-full max-h-[50vh] object-contain" alt="body preview" />
+      </div>
+    );
+  }
   let parsed: unknown = null;
   try { parsed = JSON.parse(body); } catch {}
   const display = parsed !== null ? JSON.stringify(parsed, null, 2) : body;
+
+  const isHtml = contentType?.toLowerCase().includes('html') || contentType?.toLowerCase().includes('xml');
+
   return (
     <div className="relative">
       <button
@@ -108,8 +126,12 @@ function BodyView({ body, showToast }: { body?: string; showToast: (msg: string)
         <div className="bg-pre-bg border border-border rounded-lg p-4 overflow-auto max-h-[50vh]">
           <JsonViewer data={parsed} />
         </div>
+      ) : isHtml ? (
+        <div className="max-h-[50vh] overflow-auto">
+          <HtmlViewer data={body} />
+        </div>
       ) : (
-        <pre className="bg-pre-bg border border-border rounded-lg p-4 mono text-sm text-input-text whitespace-pre-wrap break-all overflow-x-auto max-h-[50vh]">
+        <pre className="bg-pre-bg border border-border rounded-lg p-4 mono text-sm text-input-text whitespace-pre-wrap break-all overflow-x-auto max-h-[50vh] m-0">
           {body}
         </pre>
       )}
@@ -126,5 +148,75 @@ function IconBtn({ children, title, onClick }: { children: React.ReactNode; titl
     >
       {children}
     </button>
+  );
+}
+
+function HtmlViewer({ data }: { data: string }) {
+  const html = data
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/(&lt;\/?)([a-zA-Z0-9_:\-]+)/g, '$1<span class="text-accent font-bold">$2</span>')
+    .replace(/([a-zA-Z0-9_:\-]+)=(&quot;[^&]*&quot;|&#39;[^&]*&#39;|"[^"]*"|'[^']*')/g, '<span class="text-info">$1</span>=<span class="text-warning">$2</span>');
+  return <pre className="bg-pre-bg border border-border rounded-lg p-4 mono text-xs text-input-text whitespace-pre-wrap break-all overflow-x-auto m-0" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function TagsEditor({ request, showToast }: { request: RequestEntry, showToast: (msg: string) => void }) {
+  const [tags, setTags] = useState<string[]>(request.tags || []);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newTag, setNewTag] = useState('');
+
+  const save = async (newTags: string[]) => {
+    try {
+      await api.updateTags(request.id, newTags);
+      setTags(newTags);
+      request.tags = newTags; // optimistic
+      showToast('Tags updated');
+    } catch {
+      showToast('Failed to update tags');
+    }
+  };
+
+  const add = () => {
+    const trimmed = newTag.trim();
+    if (trimmed && !tags.includes(trimmed)) {
+      save([...tags, trimmed]);
+    }
+    setNewTag('');
+    setIsAdding(false);
+  };
+
+  const remove = (t: string) => {
+    save(tags.filter(x => x !== t));
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 ml-2">
+      {tags.map(t => (
+        <span key={t} className="flex items-center gap-1 bg-accent/20 text-accent px-1.5 py-0.5 rounded text-[0.65rem] font-medium border border-accent/20">
+          {t}
+          <button onClick={(e) => { e.stopPropagation(); remove(t); }} className="bg-transparent border-none text-accent hover:text-white cursor-pointer p-0 text-[0.65rem] leading-none ml-0.5">&times;</button>
+        </span>
+      ))}
+      {isAdding ? (
+        <input
+          type="text"
+          className="bg-input-bg border border-accent rounded px-1.5 py-0.5 text-[0.65rem] text-input-text w-20 outline-none"
+          placeholder="New tag..."
+          value={newTag}
+          autoFocus
+          onChange={e => setNewTag(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') add();
+            if (e.key === 'Escape') setIsAdding(false);
+          }}
+          onBlur={add}
+        />
+      ) : (
+        <button onClick={() => setIsAdding(true)} className="bg-input-bg border border-dim rounded px-1.5 py-0.5 text-[0.65rem] text-muted hover:text-text cursor-pointer">
+          + Tag
+        </button>
+      )}
+    </div>
   );
 }

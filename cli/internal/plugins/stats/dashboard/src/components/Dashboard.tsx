@@ -11,7 +11,17 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelectedState] = useState<string | null>(null);
+
+  const setSelected = useCallback((t: string | null) => {
+    setSelectedState(t);
+    if (t) {
+      const p = new URLSearchParams(window.location.hash.slice(1));
+      p.set('tunnel', t);
+      p.delete('req'); // Clear req across tunnels
+      window.history.replaceState(null, '', '#' + p.toString());
+    }
+  }, []);
   const [requests, setRequests] = useState<RequestEntry[]>([]);
   const [live, setLive] = useState(true);
   const [toast, setToast] = useState('');
@@ -30,6 +40,16 @@ export default function Dashboard() {
       setTunnels(tunnelList);
       setSummary(summaryData);
       setConnected(true);
+      if (!selectedRef.current) {
+        const hash = window.location.hash;
+        if (hash) {
+          const params = new URLSearchParams(hash.slice(1));
+          const t = params.get('tunnel');
+          if (t && tunnelList.find(x => x.subdomain === t)) {
+            setSelectedState(t);
+          }
+        }
+      }
     } catch {
       setConnected(false);
     }

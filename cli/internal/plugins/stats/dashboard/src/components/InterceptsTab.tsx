@@ -47,7 +47,7 @@ export function InterceptsTab({ showToast }: Props) {
   const inputCls = "bg-input-bg border border-dim rounded-lg px-3 py-1.5 text-xs text-input-text outline-none focus:border-accent";
   const selectCls = "bg-input-bg border border-dim rounded-lg px-2 py-1.5 text-xs text-input-text outline-none focus:border-accent";
 
-  const [form, setForm] = useState({ pattern: '', action: 'pause', methods: '', latency: '', status: '', headers: '', body: '' });
+  const [form, setForm] = useState({ pattern: '', action: 'pause', methods: '', latency: '', status: '', headers: '', body: '', matchHeaders: '' });
 
   const addRule = async () => {
     if (!form.pattern) { showToast('Path pattern required'); return; }
@@ -57,9 +57,15 @@ export function InterceptsTab({ showToast }: Props) {
       const idx = line.indexOf(':');
       if (idx > 0) setHeaders[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
     });
+    const matchHeaders: Record<string, string> = {};
+    form.matchHeaders.split('\n').forEach(line => {
+      const idx = line.indexOf(':');
+      if (idx > 0) matchHeaders[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    });
     try {
       await api.addIntercept({
         path_pattern: form.pattern, methods, action: form.action,
+        match_headers: Object.keys(matchHeaders).length ? matchHeaders : undefined,
         set_headers: Object.keys(setHeaders).length ? setHeaders : undefined,
         set_status: parseInt(form.status) || undefined,
         set_body: form.body || undefined,
@@ -67,7 +73,7 @@ export function InterceptsTab({ showToast }: Props) {
         enabled: true,
       });
       showToast('Rule added');
-      setForm({ pattern: '', action: 'pause', methods: '', latency: '', status: '', headers: '', body: '' });
+      setForm({ pattern: '', action: 'pause', methods: '', latency: '', status: '', headers: '', body: '', matchHeaders: '' });
       refresh();
     } catch (e: any) { showToast('Failed: ' + e.message); }
   };
@@ -105,6 +111,11 @@ export function InterceptsTab({ showToast }: Props) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="mono text-sm text-accent">{rule.path_pattern}</span>
                 {rule.methods?.length ? <span className="text-muted text-[.7rem]">{rule.methods.join(', ')}</span> : null}
+                {rule.match_headers && Object.keys(rule.match_headers).length > 0 ? (
+                  <span className="text-dim text-[.65rem]">
+                    req headers: {Object.entries(rule.match_headers).map(([k, v]) => `${k}=${v}`).join(', ')}
+                  </span>
+                ) : null}
                 {rule.add_latency_ms ? <span className="text-dim text-[.65rem]">+{rule.add_latency_ms}ms</span> : null}
               </div>
             </div>
@@ -131,8 +142,16 @@ export function InterceptsTab({ showToast }: Props) {
           <input className={`${inputCls} w-36`} placeholder="Add latency (ms)" type="number" min="0" value={form.latency} onChange={e => setForm(prev => ({ ...prev, latency: e.target.value }))} />
           <input className={`${inputCls} w-32`} placeholder="Override status" type="number" value={form.status} onChange={e => setForm(prev => ({ ...prev, status: e.target.value }))} />
         </div>
-        <div className="text-[.7rem] text-muted uppercase tracking-wider mb-1">Override Headers <span className="text-dim">(one per line, Key: Value)</span></div>
-        <textarea className="w-full min-h-16 bg-input-bg border border-dim rounded-lg px-3 py-2 mono text-sm text-input-text resize-y outline-none focus:border-accent mb-2" placeholder="X-Custom: value" value={form.headers} onChange={e => setForm(prev => ({ ...prev, headers: e.target.value }))} />
+        <div className="flex gap-2 mb-3">
+          <div className="flex-1">
+            <div className="text-[.7rem] text-muted uppercase tracking-wider mb-1">Match Headers <span className="text-dim">(Key: Value)</span></div>
+            <textarea className="w-full min-h-16 bg-input-bg border border-dim rounded-lg px-3 py-2 mono text-xs text-input-text resize-y outline-none focus:border-accent" placeholder="X-Debug: true" value={form.matchHeaders} onChange={e => setForm(prev => ({ ...prev, matchHeaders: e.target.value }))} />
+          </div>
+          <div className="flex-1">
+            <div className="text-[.7rem] text-muted uppercase tracking-wider mb-1">Override Headers <span className="text-dim">(Key: Value)</span></div>
+            <textarea className="w-full min-h-16 bg-input-bg border border-dim rounded-lg px-3 py-2 mono text-xs text-input-text resize-y outline-none focus:border-accent" placeholder="X-Custom: value" value={form.headers} onChange={e => setForm(prev => ({ ...prev, headers: e.target.value }))} />
+          </div>
+        </div>
         <div className="text-[.7rem] text-muted uppercase tracking-wider mb-1">Override Body</div>
         <textarea className="w-full min-h-16 bg-input-bg border border-dim rounded-lg px-3 py-2 mono text-sm text-input-text resize-y outline-none focus:border-accent mb-3" placeholder='{"mocked": true}' value={form.body} onChange={e => setForm(prev => ({ ...prev, body: e.target.value }))} />
         <button onClick={addRule} className="bg-accent text-white px-5 py-2 rounded-lg text-sm font-semibold border-none cursor-pointer hover:opacity-90">Add Rule</button>

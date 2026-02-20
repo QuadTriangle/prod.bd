@@ -12,6 +12,7 @@ const empty: Partial<UpstreamRoute> = {
   path_pattern: '.*',
   methods: [],
   target: '',
+  rewrite: '',
   enabled: true,
   priority: 0,
 };
@@ -47,7 +48,7 @@ export function UpstreamsTab({ subdomain, showToast }: Props) {
 
   const startEdit = (r: UpstreamRoute) => {
     setEditId(r.id);
-    setForm({ subdomain: r.subdomain, path_pattern: r.path_pattern, methods: r.methods, target: r.target, enabled: r.enabled, priority: r.priority });
+    setForm({ subdomain: r.subdomain, path_pattern: r.path_pattern, methods: r.methods, target: r.target, rewrite: r.rewrite, enabled: r.enabled, priority: r.priority });
   };
 
   const remove = async (id: number) => {
@@ -114,14 +115,25 @@ export function UpstreamsTab({ subdomain, showToast }: Props) {
             )}
           </div>
         </div>
-        <div className="mt-2">
-          <label className="text-[.65rem] text-muted block mb-1">Methods (comma-separated, empty = all)</label>
-          <input
-            value={(form.methods || []).join(', ')}
-            onChange={e => setForm(f => ({ ...f, methods: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
-            placeholder="GET, POST (empty = all)"
-            className="w-full text-xs px-2 py-1.5 rounded bg-input-bg border border-border text-text mono"
-          />
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[.65rem] text-muted block mb-1">Methods (comma-separated, empty = all)</label>
+            <input
+              value={(form.methods || []).join(', ')}
+              onChange={e => setForm(f => ({ ...f, methods: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
+              placeholder="GET, POST (empty = all)"
+              className="w-full text-xs px-2 py-1.5 rounded bg-input-bg border border-border text-text mono"
+            />
+          </div>
+          <div>
+            <label className="text-[.65rem] text-muted block mb-1">Rewrite Path (regex replacement)</label>
+            <input
+              value={form.rewrite || ''}
+              onChange={e => setForm(f => ({ ...f, rewrite: e.target.value }))}
+              placeholder="/api/(.*) -> /$1"
+              className="w-full text-xs px-2 py-1.5 rounded bg-input-bg border border-border text-text mono"
+            />
+          </div>
         </div>
       </div>
 
@@ -148,6 +160,7 @@ export function UpstreamsTab({ subdomain, showToast }: Props) {
                 </div>
                 <div className="flex gap-3 text-[.65rem] text-muted mt-0.5">
                   <span>path: <span className="mono">{r.path_pattern}</span></span>
+                  {r.rewrite && <span>rewrite: <span className="mono">{r.rewrite}</span></span>}
                   {r.methods && r.methods.length > 0 && <span>methods: {r.methods.join(', ')}</span>}
                   <span>priority: {r.priority}</span>
                 </div>

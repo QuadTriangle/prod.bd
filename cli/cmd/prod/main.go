@@ -57,6 +57,10 @@ func main() {
 	// Activate enabled plugins (collect hooks)
 	pipeline.Activate()
 
+	for _, ep := range pipeline.ExtraPorts() {
+		ports = append(ports, ep)
+	}
+
 	workerURL := config.GetWorkerURL()
 
 	// 1. Get Client ID

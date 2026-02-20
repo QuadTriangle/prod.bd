@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { Tunnel, RequestEntry, KVPair } from '../lib/types';
 import { formatBytes, formatLatency, timeAgo } from '../lib/utils';
 import { RequestsTab } from './RequestsTab';
@@ -9,6 +9,7 @@ import { DiffTab } from './DiffTab';
 import { WSInspectorTab } from './WSInspectorTab';
 import { RunnerTab } from './RunnerTab';
 import { UpstreamsTab } from './UpstreamsTab';
+import { api } from '../lib/api';
 import type { ComposerState } from '../lib/types';
 
 interface Props {
@@ -29,6 +30,31 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
 
   const total = tunnel.total_bytes_in + tunnel.total_bytes_out;
   const errRate = tunnel.total_requests > 0 ? ((tunnel.error_count / tunnel.total_requests) * 100).toFixed(1) + '%' : '0%';
+
+  useEffect(() => {
+    const handleKey = async (e: KeyboardEvent) => {
+      // Ignore if typing in an input
+      if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+      if (e.key >= '1' && e.key <= String(tabNames.length)) {
+        const idx = Number(e.key) - 1;
+        setTab(tabNames[idx]);
+      } else if (e.key.toLowerCase() === 'r') {
+        onRefresh();
+        showToast('Refreshed');
+      } else if (e.key.toLowerCase() === 'c') {
+        try {
+          await api.clearLogs();
+          onRefresh();
+          showToast('Logs cleared');
+        } catch (error: any) {
+          showToast('Clear failed: ' + error.message);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onRefresh, showToast]);
 
   const openComposerFrom = useCallback((request: RequestEntry) => {
     const [basePath, queryString] = (request.path || '/').split('?');
@@ -76,7 +102,7 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
   return (
     <div>
       <div className="flex gap-0 mb-4 border-b border-border">
-        {tabNames.map(tabName => (
+        {tabNames.map((tabName, idx) => (
           <button
             key={tabName}
             onClick={() => setTab(tabName)}
@@ -87,6 +113,7 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
             {tabName}
           </button>
         ))}
+        <div className="flex-1" />
       </div>
 
       {/* Tunnel info card */}

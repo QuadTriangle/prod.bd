@@ -2,6 +2,7 @@ package stats
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -49,6 +50,9 @@ type requestJSON struct {
 	RequestBody     string              `json:"request_body,omitempty"`
 	ResponseHeaders map[string][]string `json:"response_headers,omitempty"`
 	ResponseBody    string              `json:"response_body,omitempty"`
+	Truncated       bool                `json:"truncated,omitempty"`
+	Upstream        string              `json:"upstream,omitempty"`
+	Tags            []string            `json:"tags,omitempty"`
 }
 
 type summaryJSON struct {
@@ -122,11 +126,12 @@ func (s *Server) Broadcast(event string, data any) {
 	s.sseMu.Unlock()
 }
 
-func StartServer(store *Store, port int) (*Server, error) {
+func StartServer(store *Store, port int, authStr string) (*Server, error) {
 	mux := http.NewServeMux()
 	s := &Server{store: store, clients: make(map[*sseClient]struct{})}
 	mux.HandleFunc("/api/stats/tunnels", s.handleTunnels)
 	mux.HandleFunc("/api/stats/requests", s.handleRequests)
+	mux.HandleFunc("/api/stats/requests/", s.handleRequestByID)
 	mux.HandleFunc("/api/stats/summary", s.handleSummary)
 	mux.HandleFunc("/api/stats/replay/", s.handleReplay)
 	mux.HandleFunc("/api/stats/send", s.handleSend)
@@ -143,6 +148,7 @@ func StartServer(store *Store, port int) (*Server, error) {
 	mux.HandleFunc("/api/stats/export", s.handleExport)
 	mux.HandleFunc("/api/stats/import/saved", s.handleImportSaved)
 	mux.HandleFunc("/api/stats/ws/messages", s.handleWSMessages)
+	mux.HandleFunc("/api/stats/ws/send", s.handleWSSend)
 	mux.HandleFunc("/api/stats/run", s.handleCollectionRun)
 	mux.HandleFunc("/api/stats/upstreams", s.handleUpstreams)
 	mux.HandleFunc("/api/stats/upstreams/", s.handleUpstreamByID)
@@ -169,7 +175,27 @@ func StartServer(store *Store, port int) (*Server, error) {
 		return nil, err
 	}
 	s.listener = ln
-	srv := &http.Server{Handler: corsMiddleware(mux)}
+	var handler http.Handler = mux
+
+	if authStr != "" {
+		parts := strings.SplitN(authStr, ":", 2)
+		expectedUser := parts[0]
+		expectedPass := ""
+		if len(parts) > 1 {
+			expectedPass = parts[1]
+		}
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, pass, ok := r.BasicAuth()
+			if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(expectedUser)) != 1 || subtle.ConstantTimeCompare([]byte(pass), []byte(expectedPass)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Basic realm="restricted"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			mux.ServeHTTP(w, r)
+		})
+	}
+
+	srv := &http.Server{Handler: corsMiddleware(handler)}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[stats] server error: %v", err)
@@ -243,9 +269,39 @@ func (s *Server) handleRequests(w http.ResponseWriter, r *http.Request) {
 			BytesIn: e.BytesIn, BytesOut: e.BytesOut, CreatedAt: e.Timestamp.Unix(),
 			RequestHeaders: e.RequestHeaders, RequestBody: e.RequestBody,
 			ResponseHeaders: e.ResponseHeaders, ResponseBody: e.ResponseBody,
+			Truncated: e.TruncatedBody, Upstream: e.Upstream, Tags: e.Tags,
 		})
 	}
 	writeJSON(w, map[string]any{"requests": reqs})
+}
+
+func (s *Server) handleRequestByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/stats/requests/")
+	if !strings.HasSuffix(idStr, "/tags") {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	idStr = strings.TrimSuffix(idStr, "/tags")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodPut {
+		var payload struct {
+			Tags []string `json:"tags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		s.store.UpdateTags(id, payload.Tags)
+		writeJSON(w, map[string]any{"updated": true})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
 func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
@@ -532,6 +588,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			BytesIn: e.BytesIn, BytesOut: e.BytesOut, CreatedAt: e.Timestamp.Unix(),
 			RequestHeaders: e.RequestHeaders, RequestBody: e.RequestBody,
 			ResponseHeaders: e.ResponseHeaders, ResponseBody: e.ResponseBody,
+			Truncated: e.TruncatedBody, Upstream: e.Upstream, Tags: e.Tags,
 		})
 	}
 	writeJSON(w, map[string]any{"requests": reqs})
@@ -644,12 +701,12 @@ func (s *Server) exportHAR(w http.ResponseWriter, entries []RequestEntry) {
 		} `json:"postData,omitempty"`
 	}
 	type harResponse struct {
-		Status      int        `json:"status"`
-		StatusText  string     `json:"statusText"`
-		HTTPVersion string     `json:"httpVersion"`
+		Status      int         `json:"status"`
+		StatusText  string      `json:"statusText"`
+		HTTPVersion string      `json:"httpVersion"`
 		Headers     []harHeader `json:"headers"`
-		Content     harContent `json:"content"`
-		BodySize    int        `json:"bodySize"`
+		Content     harContent  `json:"content"`
+		BodySize    int         `json:"bodySize"`
 	}
 	type harTimings struct {
 		Send    int     `json:"send"`
@@ -761,6 +818,49 @@ func (s *Server) handleWSMessages(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleWSSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SessionID string `json:"session_id"`
+		IsText    bool   `json:"is_text"`
+		Payload   string `json:"payload"` // raw text or base64
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.store.wsMu.RLock()
+	sender, ok := s.store.wsSenders[req.SessionID]
+	s.store.wsMu.RUnlock()
+
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var data []byte
+	if req.IsText {
+		data = []byte(req.Payload)
+	} else {
+		dec, err := base64.StdEncoding.DecodeString(req.Payload)
+		if err != nil {
+			http.Error(w, "invalid base64 payload", http.StatusBadRequest)
+			return
+		}
+		data = dec
+	}
+
+	if err := sender(req.IsText, data); err != nil {
+		http.Error(w, "failed to send frame", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"sent": true})
 }
 
 func (s *Server) handleCollectionRun(w http.ResponseWriter, r *http.Request) {

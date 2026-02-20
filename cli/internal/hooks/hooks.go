@@ -32,6 +32,8 @@ type ConnectionHook interface {
 
 // WSHook observes WebSocket frames flowing through the tunnel.
 type WSHook interface {
+	OnWSSessionStart(subdomain, sessionID string, sender func(isText bool, payload []byte) error)
+	OnWSSessionEnd(subdomain, sessionID string)
 	OnWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
 }
 
@@ -73,6 +75,8 @@ type Plugin interface {
 	WSHooks() []WSHook
 	// ProxyHooks returns proxy hooks for upstream resolution, or nil.
 	ProxyHooks() []ProxyHook
+	// ExtraPorts returns additional ports that the plugin wants to expose via tunnels.
+	ExtraPorts() []int
 }
 
 // --- Pipeline ---
@@ -137,6 +141,17 @@ func (p *Pipeline) WorkerConfig() map[string]any {
 	return merged
 }
 
+// ExtraPorts aggregates all extra ports from enabled plugins.
+func (p *Pipeline) ExtraPorts() []int {
+	var ports []int
+	for _, pl := range p.plugins {
+		if pl.Enabled() {
+			ports = append(ports, pl.ExtraPorts()...)
+		}
+	}
+	return ports
+}
+
 func (p *Pipeline) AddRequestHook(h RequestHook)       { p.reqHooks = append(p.reqHooks, h) }
 func (p *Pipeline) AddConnectionHook(h ConnectionHook) { p.connHooks = append(p.connHooks, h) }
 
@@ -195,5 +210,17 @@ func (p *Pipeline) NotifyRequest(subdomain string) {
 func (p *Pipeline) NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int) {
 	for _, h := range p.wsHooks {
 		h.OnWSFrame(subdomain, sessionID, direction, isText, payload, size)
+	}
+}
+
+func (p *Pipeline) NotifyWSSessionStart(subdomain, sessionID string, sender func(isText bool, payload []byte) error) {
+	for _, h := range p.wsHooks {
+		h.OnWSSessionStart(subdomain, sessionID, sender)
+	}
+}
+
+func (p *Pipeline) NotifyWSSessionEnd(subdomain, sessionID string) {
+	for _, h := range p.wsHooks {
+		h.OnWSSessionEnd(subdomain, sessionID)
 	}
 }

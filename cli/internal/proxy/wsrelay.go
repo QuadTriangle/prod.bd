@@ -37,6 +37,8 @@ type WSRelay struct {
 	resolve         UpstreamResolver
 	pipeline        interface {
 		NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
+		NotifyWSSessionStart(subdomain, sessionID string, sender func(isText bool, payload []byte) error)
+		NotifyWSSessionEnd(subdomain, sessionID string)
 	}
 
 	mu       sync.Mutex
@@ -45,6 +47,8 @@ type WSRelay struct {
 
 func NewWSRelay(defaultUpstream string, subdomain string, writeJSON func(v any) error, resolve UpstreamResolver, pipeline interface {
 	NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
+	NotifyWSSessionStart(subdomain, sessionID string, sender func(isText bool, payload []byte) error)
+	NotifyWSSessionEnd(subdomain, sessionID string)
 }) *WSRelay {
 	return &WSRelay{
 		defaultUpstream: defaultUpstream,
@@ -110,6 +114,13 @@ func (r *WSRelay) HandleOpen(msg types.WSOpen) {
 	r.sessions[msg.ID] = sess
 	r.mu.Unlock()
 
+	r.pipeline.NotifyWSSessionStart(r.subdomain, msg.ID, func(isText bool, payload []byte) error {
+		if isText {
+			return sess.writeMessage(websocket.TextMessage, payload)
+		}
+		return sess.writeMessage(websocket.BinaryMessage, payload)
+	})
+
 	go r.readLoop(msg.ID, sess)
 }
 
@@ -119,6 +130,7 @@ func (r *WSRelay) readLoop(sessionID string, sess *wsSession) {
 		r.mu.Lock()
 		delete(r.sessions, sessionID)
 		r.mu.Unlock()
+		r.pipeline.NotifyWSSessionEnd(r.subdomain, sessionID)
 	}()
 
 	for {

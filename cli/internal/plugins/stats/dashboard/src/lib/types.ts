@@ -17,6 +17,7 @@ export interface UpstreamRoute {
   path_pattern: string;
   methods?: string[];
   target: string;
+  rewrite?: string;
   enabled: boolean;
   priority: number;
 }
@@ -35,6 +36,9 @@ export interface RequestEntry {
   request_body?: string;
   response_headers?: Record<string, string[]>;
   response_body?: string;
+  truncated?: boolean;
+  upstream?: string;
+  tags?: string[];
 }
 
 export interface Summary {
@@ -50,6 +54,7 @@ export interface InterceptRule {
   id: number;
   path_pattern: string;
   methods?: string[];
+  match_headers?: Record<string, string>;
   action: string;
   set_headers?: Record<string, string>;
   set_status?: number;
