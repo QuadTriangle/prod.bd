@@ -34,7 +34,8 @@ export function Header({ connected, live, onToggleLive, onRefresh }: Props) {
     <header className="border-b border-border bg-header-bg backdrop-blur-[8px] sticky top-0 z-40">
       <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <a target="_blank" href="https://prod.bd" className="text-accent font-bold text-lg no-underline">
+          <a target="_blank" href="https://prod.bd" className="flex items-center gap-2 text-accent font-bold text-lg no-underline">
+            <img src="/logo.png" alt="prod.bd logo" className="w-6 h-6" />
             prod.bd
           </a>
           <span className="text-dim">/</span>

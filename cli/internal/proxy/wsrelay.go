@@ -29,16 +29,24 @@ func (s *wsSession) writeMessage(msgType int, data []byte) error {
 // WSRelay manages proxied visitor WebSocket sessions for a single tunnel connection.
 type WSRelay struct {
 	localPort int
+	subdomain string
 	writeJSON func(v any) error
+	pipeline  interface {
+		NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
+	}
 
 	mu       sync.Mutex
 	sessions map[string]*wsSession
 }
 
-func NewWSRelay(localPort int, writeJSON func(v any) error) *WSRelay {
+func NewWSRelay(localPort int, subdomain string, writeJSON func(v any) error, pipeline interface {
+	NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
+}) *WSRelay {
 	return &WSRelay{
 		localPort: localPort,
+		subdomain: subdomain,
 		writeJSON: writeJSON,
+		pipeline:  pipeline,
 		sessions:  make(map[string]*wsSession),
 	}
 }
@@ -121,6 +129,7 @@ func (r *WSRelay) readLoop(sessionID string, sess *wsSession) {
 			log.Printf("Error sending ws-frame for session %s: %v", sessionID, err)
 			return
 		}
+		r.pipeline.NotifyWSFrame(r.subdomain, sessionID, "out", frame.IsText, frame.Payload, len(frame.Payload))
 	}
 }
 

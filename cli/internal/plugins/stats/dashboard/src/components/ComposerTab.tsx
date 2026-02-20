@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Tunnel, SavedRequest, SendResult, ComposerState } from '../lib/types';
+import type { Tunnel, SavedRequest, SendResult, ComposerState, Assertion } from '../lib/types';
 import { api } from '../lib/api';
 import { formatBytes, formatLatency, statusColor, methodColor, METHODS } from '../lib/utils';
 import type { KVPair } from '../lib/types';
@@ -15,7 +15,7 @@ const emptyKV = (): KVPair => ({ key: '', value: '', enabled: true });
 
 const defaultComposer = (): ComposerState => ({
   method: 'GET', path: '/', params: [emptyKV()], headers: [emptyKV()],
-  bodyType: 'none', body: '', name: '',
+  bodyType: 'none', body: '', name: '', assertions: [],
 });
 
 export function ComposerTab({ tunnel, showToast, initialState, onConsumeInit }: Props) {
@@ -92,7 +92,7 @@ export function ComposerTab({ tunnel, showToast, initialState, onConsumeInit }: 
   const saveReq = async () => {
     const name = composer.name || composer.method + ' ' + composer.path;
     try {
-      await api.addSaved({ name, method: composer.method, path: composer.path, params: composer.params.filter(param => param.key), headers: composer.headers.filter(header => header.key), body_type: composer.bodyType, body: composer.body });
+      await api.addSaved({ name, method: composer.method, path: composer.path, params: composer.params.filter(param => param.key), headers: composer.headers.filter(header => header.key), body_type: composer.bodyType, body: composer.body, assertions: composer.assertions.length ? composer.assertions : undefined });
       showToast('Saved');
       setSaved(await api.fetchSaved());
     } catch (e: any) { showToast('Save error: ' + e.message); }
@@ -104,6 +104,7 @@ export function ComposerTab({ tunnel, showToast, initialState, onConsumeInit }: 
       params: savedRequest.params?.length ? savedRequest.params : [emptyKV()],
       headers: savedRequest.headers?.length ? savedRequest.headers : [emptyKV()],
       bodyType: savedRequest.body_type || 'none', body: savedRequest.body || '', name: savedRequest.name || '',
+      assertions: savedRequest.assertions ?? [],
     });
     setResult(null);
   };
@@ -119,7 +120,30 @@ export function ComposerTab({ tunnel, showToast, initialState, onConsumeInit }: 
     <div>
       {saved.length > 0 && (
         <div className="mb-4">
-          <div className="text-[.7rem] text-muted uppercase tracking-wider mb-2">Saved Requests</div>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="text-[.7rem] text-muted uppercase tracking-wider">Saved Requests</div>
+            <div className="flex-1" />
+            <button onClick={() => {
+              const blob = new Blob([JSON.stringify({ saved }, null, 2)], { type: 'application/json' });
+              const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+              a.download = 'prod-bd-saved.json'; a.click();
+            }} className="text-[.65rem] px-2 py-1 rounded bg-input-bg text-input-text border-none cursor-pointer hover:bg-dim">⬇ Export</button>
+            <label className="text-[.65rem] px-2 py-1 rounded bg-input-bg text-input-text cursor-pointer hover:bg-dim">
+              ⬆ Import
+              <input type="file" accept=".json" className="hidden" onChange={async e => {
+                const file = e.target.files?.[0]; if (!file) return;
+                try {
+                  const data = JSON.parse(await file.text());
+                  const items = data.saved ?? data;
+                  if (!Array.isArray(items)) { showToast('Invalid format'); return; }
+                  const res = await api.importSaved(items);
+                  showToast(`Imported ${res.imported} requests`);
+                  setSaved(await api.fetchSaved());
+                } catch (err: any) { showToast('Import failed: ' + err.message); }
+                e.target.value = '';
+              }} />
+            </label>
+          </div>
           {saved.map(savedRequest => (
             <div key={savedRequest.id} className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer border border-border bg-surface mb-1.5 hover:border-dim" onClick={() => loadSaved(savedRequest)}>
               <span className={`px-1.5 py-0.5 rounded text-[.6rem] mono font-bold ${methodColor(savedRequest.method)}`}>{savedRequest.method}</span>
@@ -127,6 +151,26 @@ export function ComposerTab({ tunnel, showToast, initialState, onConsumeInit }: 
               <button onClick={e => { e.stopPropagation(); deleteSaved(savedRequest.id); }} className="bg-transparent border-none text-dim cursor-pointer text-xs hover:text-danger">×</button>
             </div>
           ))}
+        </div>
+      )}
+
+      {saved.length === 0 && (
+        <div className="mb-4">
+          <label className="text-[.65rem] px-2 py-1 rounded bg-input-bg text-input-text cursor-pointer hover:bg-dim">
+            ⬆ Import Saved Requests
+            <input type="file" accept=".json" className="hidden" onChange={async e => {
+              const file = e.target.files?.[0]; if (!file) return;
+              try {
+                const data = JSON.parse(await file.text());
+                const items = data.saved ?? data;
+                if (!Array.isArray(items)) { showToast('Invalid format'); return; }
+                const res = await api.importSaved(items);
+                showToast(`Imported ${res.imported} requests`);
+                setSaved(await api.fetchSaved());
+              } catch (err: any) { showToast('Import failed: ' + err.message); }
+              e.target.value = '';
+            }} />
+          </label>
         </div>
       )}
 
@@ -153,20 +197,51 @@ export function ComposerTab({ tunnel, showToast, initialState, onConsumeInit }: 
               </button>
             ))}
           </div>
-          {comp.bodyType !== 'none' && (
+          {composer.bodyType !== 'none' && (
             <textarea
               className="w-full min-h-24 bg-input-bg border border-dim rounded-lg px-3 py-2 mono text-sm text-input-text resize-y outline-none focus:border-accent"
-              value={comp.body}
+              value={composer.body}
               onChange={e => update({ body: e.target.value })}
-              placeholder={comp.bodyType === 'json' ? '{"key": "value"}' : comp.bodyType === 'form' ? 'key=value&other=data' : 'raw body content'}
+              placeholder={composer.bodyType === 'json' ? '{"key": "value"}' : composer.bodyType === 'form' ? 'key=value&other=data' : 'raw body content'}
             />
           )}
         </div>
 
+        {/* Assertions */}
+        <div className="mt-3">
+          <div className="text-[.7rem] text-muted uppercase tracking-wider mb-1">Assertions</div>
+          {composer.assertions.map((a, i) => (
+            <div key={i} className="flex gap-1.5 items-center mb-1.5">
+              <select className="bg-input-bg border border-dim rounded-md px-2 py-1 text-xs text-input-text outline-none w-[120px]" value={a.target} onChange={e => { const next = [...composer.assertions]; next[i] = { ...a, target: e.target.value }; update({ assertions: next }); }}>
+                <option value="status">Status</option>
+                <option value="latency">Latency (ms)</option>
+                <option value="header">Header</option>
+                <option value="body_contains">Body contains</option>
+                <option value="body_json">Body JSON path</option>
+              </select>
+              {(a.target === 'header' || a.target === 'body_json') && (
+                <input className="bg-input-bg border border-dim rounded-md px-2 py-1 text-xs text-input-text outline-none w-[120px] mono" placeholder={a.target === 'header' ? 'Header name' : 'data.id'} value={a.property} onChange={e => { const next = [...composer.assertions]; next[i] = { ...a, property: e.target.value }; update({ assertions: next }); }} />
+              )}
+              <select className="bg-input-bg border border-dim rounded-md px-2 py-1 text-xs text-input-text outline-none w-[100px]" value={a.operator} onChange={e => { const next = [...composer.assertions]; next[i] = { ...a, operator: e.target.value }; update({ assertions: next }); }}>
+                <option value="eq">equals</option>
+                <option value="neq">not equals</option>
+                <option value="contains">contains</option>
+                <option value="lt">less than</option>
+                <option value="gt">greater than</option>
+                <option value="exists">exists</option>
+              </select>
+              {a.operator !== 'exists' && (
+                <input className="bg-input-bg border border-dim rounded-md px-2 py-1 text-xs text-input-text outline-none flex-1 mono" placeholder="Expected value" value={a.value} onChange={e => { const next = [...composer.assertions]; next[i] = { ...a, value: e.target.value }; update({ assertions: next }); }} />
+              )}
+              <button onClick={() => { const next = composer.assertions.filter((_, j) => j !== i); update({ assertions: next }); }} className="bg-transparent border-none text-dim cursor-pointer text-sm hover:text-danger">×</button>
+            </div>
+          ))}
+          <button onClick={() => update({ assertions: [...composer.assertions, { target: 'status', property: '', operator: 'eq', value: '200' }] })} className="w-full text-left bg-transparent border border-dashed border-dim rounded-md px-3 py-1 text-[.7rem] text-muted cursor-pointer hover:border-accent hover:text-accent">+ Add Assertion</button>
+        </div>
         <div className="mt-3 flex gap-2 items-center">
-          <input className={`${inputCls} flex-1`} placeholder="Request name (for saving)" value={comp.name} onChange={e => update({ name: e.target.value })} />
+          <input className={`${inputCls} flex-1`} placeholder="Request name (for saving)" value={composer.name} onChange={e => update({ name: e.target.value })} />
           <button onClick={saveReq} className="text-xs px-3 py-1.5 rounded-lg bg-input-bg text-input-text border-none cursor-pointer hover:bg-dim">Save</button>
-          <button onClick={() => { setComp(defaultComp()); setResult(null); }} className="text-xs px-3 py-1.5 rounded-lg bg-input-bg text-input-text border-none cursor-pointer hover:bg-dim">Clear</button>
+          <button onClick={() => { setComposer(defaultComposer()); setResult(null); }} className="text-xs px-3 py-1.5 rounded-lg bg-input-bg text-input-text border-none cursor-pointer hover:bg-dim">Clear</button>
         </div>
 
         {result && (

@@ -21,6 +21,11 @@ type ConnectionHook interface {
 	OnRequest(subdomain string)
 }
 
+// WSHook observes WebSocket frames flowing through the tunnel.
+type WSHook interface {
+	OnWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
+}
+
 // NoOpRequestHook is a convenience embed for hooks that only need one method.
 type NoOpRequestHook struct{}
 
@@ -55,6 +60,8 @@ type Plugin interface {
 	RequestHooks() []RequestHook
 	// ConnectionHooks returns connection hooks to add to the pipeline, or nil.
 	ConnectionHooks() []ConnectionHook
+	// WSHooks returns WebSocket hooks to add to the pipeline, or nil.
+	WSHooks() []WSHook
 }
 
 // --- Pipeline ---
@@ -64,6 +71,7 @@ type Pipeline struct {
 	plugins   []Plugin
 	reqHooks  []RequestHook
 	connHooks []ConnectionHook
+	wsHooks   []WSHook
 }
 
 // RegisterPlugin adds a plugin. Call before flag.Parse().
@@ -90,6 +98,9 @@ func (p *Pipeline) Activate() {
 		}
 		for _, h := range pl.ConnectionHooks() {
 			p.connHooks = append(p.connHooks, h)
+		}
+		for _, h := range pl.WSHooks() {
+			p.wsHooks = append(p.wsHooks, h)
 		}
 	}
 }
@@ -143,5 +154,11 @@ func (p *Pipeline) NotifyDisconnect(subdomain string, err error) {
 func (p *Pipeline) NotifyRequest(subdomain string) {
 	for _, h := range p.connHooks {
 		h.OnRequest(subdomain)
+	}
+}
+
+func (p *Pipeline) NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int) {
+	for _, h := range p.wsHooks {
+		h.OnWSFrame(subdomain, sessionID, direction, isText, payload, size)
 	}
 }

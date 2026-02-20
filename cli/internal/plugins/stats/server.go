@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,14 +69,49 @@ type pausedJSON struct {
 	PausedAt int64               `json:"paused_at"`
 }
 
+type sseClient struct {
+	ch chan []byte
+}
+
 type Server struct {
 	store    *Store
 	listener net.Listener
+
+	sseMu   sync.Mutex
+	clients map[*sseClient]struct{}
+}
+
+func (s *Server) addSSEClient(c *sseClient) {
+	s.sseMu.Lock()
+	s.clients[c] = struct{}{}
+	s.sseMu.Unlock()
+}
+
+func (s *Server) removeSSEClient(c *sseClient) {
+	s.sseMu.Lock()
+	delete(s.clients, c)
+	s.sseMu.Unlock()
+}
+
+func (s *Server) Broadcast(event string, data any) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	msg := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, payload))
+	s.sseMu.Lock()
+	for c := range s.clients {
+		select {
+		case c.ch <- msg:
+		default: // drop if slow
+		}
+	}
+	s.sseMu.Unlock()
 }
 
 func StartServer(store *Store, port int) (*Server, error) {
 	mux := http.NewServeMux()
-	s := &Server{store: store}
+	s := &Server{store: store, clients: make(map[*sseClient]struct{})}
 	mux.HandleFunc("/api/stats/tunnels", s.handleTunnels)
 	mux.HandleFunc("/api/stats/requests", s.handleRequests)
 	mux.HandleFunc("/api/stats/summary", s.handleSummary)
@@ -90,6 +126,11 @@ func StartServer(store *Store, port int) (*Server, error) {
 	mux.HandleFunc("/api/stats/search", s.handleSearch)
 	mux.HandleFunc("/api/stats/curl/", s.handleCurl)
 	mux.HandleFunc("/api/stats/clear", s.handleClear)
+	mux.HandleFunc("/api/stats/events", s.handleSSE)
+	mux.HandleFunc("/api/stats/export", s.handleExport)
+	mux.HandleFunc("/api/stats/import/saved", s.handleImportSaved)
+	mux.HandleFunc("/api/stats/ws/messages", s.handleWSMessages)
+	mux.HandleFunc("/api/stats/run", s.handleCollectionRun)
 	// Serve built Astro static files from dashboard/dist
 	distFS, _ := fs.Sub(dashboardFS, "dashboard/dist")
 	fileServer := http.FileServer(http.FS(distFS))
@@ -517,4 +558,293 @@ func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.ClearLogs()
 	writeJSON(w, map[string]any{"cleared": true})
+}
+
+func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	client := &sseClient{ch: make(chan []byte, 64)}
+	s.addSSEClient(client)
+	defer s.removeSSEClient(client)
+
+	// Send initial state
+	s.Broadcast("connected", map[string]bool{"ok": true})
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-client.ch:
+			w.Write(msg)
+			flusher.Flush()
+		}
+	}
+}
+
+// HAR export: https://w3c.github.io/web-performance/specs/HAR/Overview.html
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	subdomain := r.URL.Query().Get("subdomain")
+
+	entries := s.store.RecentLogs(500)
+	var filtered []RequestEntry
+	for _, e := range entries {
+		if subdomain == "" || e.Subdomain == subdomain {
+			filtered = append(filtered, e)
+		}
+	}
+
+	s.exportHAR(w, filtered)
+}
+
+func (s *Server) exportHAR(w http.ResponseWriter, entries []RequestEntry) {
+	type harHeader struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	type harContent struct {
+		Size     int    `json:"size"`
+		MimeType string `json:"mimeType"`
+		Text     string `json:"text,omitempty"`
+	}
+	type harRequest struct {
+		Method      string      `json:"method"`
+		URL         string      `json:"url"`
+		HTTPVersion string      `json:"httpVersion"`
+		Headers     []harHeader `json:"headers"`
+		BodySize    int         `json:"bodySize"`
+		PostData    *struct {
+			MimeType string `json:"mimeType"`
+			Text     string `json:"text"`
+		} `json:"postData,omitempty"`
+	}
+	type harResponse struct {
+		Status      int        `json:"status"`
+		StatusText  string     `json:"statusText"`
+		HTTPVersion string     `json:"httpVersion"`
+		Headers     []harHeader `json:"headers"`
+		Content     harContent `json:"content"`
+		BodySize    int        `json:"bodySize"`
+	}
+	type harTimings struct {
+		Send    int     `json:"send"`
+		Wait    float64 `json:"wait"`
+		Receive int     `json:"receive"`
+	}
+	type harEntry struct {
+		StartedDateTime string      `json:"startedDateTime"`
+		Time            float64     `json:"time"`
+		Request         harRequest  `json:"request"`
+		Response        harResponse `json:"response"`
+		Timings         harTimings  `json:"timings"`
+	}
+
+	harEntries := make([]harEntry, 0, len(entries))
+	for _, e := range entries {
+		reqHeaders := make([]harHeader, 0)
+		for k, vals := range e.RequestHeaders {
+			for _, v := range vals {
+				reqHeaders = append(reqHeaders, harHeader{Name: k, Value: v})
+			}
+		}
+		respHeaders := make([]harHeader, 0)
+		for k, vals := range e.ResponseHeaders {
+			for _, v := range vals {
+				respHeaders = append(respHeaders, harHeader{Name: k, Value: v})
+			}
+		}
+
+		port, _ := s.store.PortForSubdomain(e.Subdomain)
+		url := fmt.Sprintf("http://127.0.0.1:%d%s", port, e.Path)
+
+		hr := harRequest{
+			Method: e.Method, URL: url, HTTPVersion: "HTTP/1.1",
+			Headers: reqHeaders, BodySize: e.BytesIn,
+		}
+		if e.RequestBody != "" {
+			ct := ""
+			for _, h := range reqHeaders {
+				if strings.EqualFold(h.Name, "content-type") {
+					ct = h.Value
+					break
+				}
+			}
+			hr.PostData = &struct {
+				MimeType string `json:"mimeType"`
+				Text     string `json:"text"`
+			}{MimeType: ct, Text: e.RequestBody}
+		}
+
+		he := harEntry{
+			StartedDateTime: e.Timestamp.Format(time.RFC3339Nano),
+			Time:            float64(e.Latency.Milliseconds()),
+			Request:         hr,
+			Response: harResponse{
+				Status: e.Status, StatusText: http.StatusText(e.Status),
+				HTTPVersion: "HTTP/1.1", Headers: respHeaders,
+				Content:  harContent{Size: e.BytesOut, MimeType: e.ContentType, Text: e.ResponseBody},
+				BodySize: e.BytesOut,
+			},
+			Timings: harTimings{Send: 0, Wait: float64(e.Latency.Milliseconds()), Receive: 0},
+		}
+		harEntries = append(harEntries, he)
+	}
+
+	har := map[string]any{
+		"log": map[string]any{
+			"version": "1.2",
+			"creator": map[string]string{"name": "prod.bd", "version": "1.0"},
+			"entries": harEntries,
+		},
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=prod-bd-export.har")
+	writeJSON(w, har)
+}
+
+func (s *Server) handleImportSaved(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		Saved []SavedRequest `json:"saved"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	imported := 0
+	for _, sr := range payload.Saved {
+		s.store.AddSaved(sr)
+		imported++
+	}
+	writeJSON(w, map[string]any{"imported": imported})
+}
+
+func (s *Server) handleWSMessages(w http.ResponseWriter, r *http.Request) {
+	subdomain := r.URL.Query().Get("subdomain")
+	limit := 200
+	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
+		limit = n
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"messages": s.store.RecentWSMessages(subdomain, limit)})
+	case http.MethodDelete:
+		s.store.ClearWSMessages()
+		writeJSON(w, map[string]any{"cleared": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleCollectionRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		Subdomain string `json:"subdomain"`
+		IDs       []int  `json:"ids"` // saved request IDs to run; empty = all
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	port, ok := s.store.PortForSubdomain(payload.Subdomain)
+	if !ok {
+		http.Error(w, "tunnel not connected", http.StatusGone)
+		return
+	}
+
+	saved := s.store.ListSaved()
+	var toRun []SavedRequest
+	if len(payload.IDs) > 0 {
+		idSet := make(map[int]bool, len(payload.IDs))
+		for _, id := range payload.IDs {
+			idSet[id] = true
+		}
+		for _, sr := range saved {
+			if idSet[sr.ID] {
+				toRun = append(toRun, sr)
+			}
+		}
+	} else {
+		toRun = saved
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	results := make([]RunResult, 0, len(toRun))
+
+	for _, sr := range toRun {
+		rr := RunResult{Name: sr.Name, Method: sr.Method, Path: sr.Path}
+
+		path := sr.Path
+		if len(sr.Params) > 0 {
+			var parts []string
+			for _, p := range sr.Params {
+				if p.Enabled && p.Key != "" {
+					parts = append(parts, p.Key+"="+p.Value)
+				}
+			}
+			if len(parts) > 0 {
+				path += "?" + strings.Join(parts, "&")
+			}
+		}
+
+		targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
+		method := sr.Method
+		if method == "" {
+			method = "GET"
+		}
+		var body io.Reader
+		if sr.BodyType != "none" && sr.Body != "" {
+			body = bytes.NewReader([]byte(sr.Body))
+		}
+		req, err := http.NewRequest(method, targetURL, body)
+		if err != nil {
+			rr.Error = err.Error()
+			results = append(results, rr)
+			continue
+		}
+		for _, h := range sr.Headers {
+			if h.Enabled && h.Key != "" {
+				req.Header.Set(h.Key, h.Value)
+			}
+		}
+
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			rr.Error = err.Error()
+			results = append(results, rr)
+			continue
+		}
+		latency := time.Since(start)
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		rr.Status = resp.StatusCode
+		rr.LatencyMs = float64(latency.Milliseconds())
+
+		if len(sr.Assertions) > 0 {
+			headers := make(map[string][]string)
+			for k, v := range resp.Header {
+				headers[k] = v
+			}
+			rr.Assertions = EvaluateAssertions(sr.Assertions, resp.StatusCode, rr.LatencyMs, headers, string(respBody))
+		}
+
+		results = append(results, rr)
+	}
+
+	writeJSON(w, map[string]any{"results": results})
 }

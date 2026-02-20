@@ -15,7 +15,9 @@ export default function Dashboard() {
   const [requests, setRequests] = useState<RequestEntry[]>([]);
   const [live, setLive] = useState(true);
   const [toast, setToast] = useState('');
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -42,25 +44,31 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  const debouncedRefresh = useCallback(() => {
+    if (debounceRef.current) return;
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      fetchAll();
+      if (selectedRef.current) fetchReqs(selectedRef.current);
+    }, 500);
+  }, [fetchAll, fetchReqs]);
 
-  useEffect(() => {
-    if (selected) fetchReqs(selected);
-  }, [selected, fetchReqs]);
+  // Initial fetch
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { if (selected) fetchReqs(selected); }, [selected, fetchReqs]);
 
+  // SSE: subscribe when live, debounce refetch on events
   useEffect(() => {
-    if (live) {
-      intervalRef.current = setInterval(() => {
-        fetchAll();
-        if (selected) fetchReqs(selected);
-      }, 2000);
-    }
+    if (!live) return;
+    const unsub = api.subscribeSSE({
+      onRequest: debouncedRefresh,
+      onTunnel: debouncedRefresh,
+    });
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      unsub();
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
     };
-  }, [live, selected, fetchAll, fetchReqs]);
+  }, [live, debouncedRefresh]);
 
   const refresh = async () => {
     await fetchAll();

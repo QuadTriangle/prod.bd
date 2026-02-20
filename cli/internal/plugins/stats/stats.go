@@ -2,6 +2,7 @@ package stats
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -83,15 +84,55 @@ type RequestEntry struct {
 
 // SavedRequest is a named request template for the composer (like Postman collections).
 type SavedRequest struct {
-	ID       int      `json:"id"`
-	Name     string   `json:"name"`
-	Method   string   `json:"method"`
-	Path     string   `json:"path"`
-	Params   []KVPair `json:"params,omitempty"`  // query params
-	Headers  []KVPair `json:"headers,omitempty"` // request headers
-	BodyType string   `json:"body_type"`         // "none", "json", "form", "raw"
-	Body     string   `json:"body,omitempty"`
-	Created  int64    `json:"created"`
+	ID         int         `json:"id"`
+	Name       string      `json:"name"`
+	Method     string      `json:"method"`
+	Path       string      `json:"path"`
+	Params     []KVPair    `json:"params,omitempty"`     // query params
+	Headers    []KVPair    `json:"headers,omitempty"`    // request headers
+	BodyType   string      `json:"body_type"`            // "none", "json", "form", "raw"
+	Body       string      `json:"body,omitempty"`
+	Assertions []Assertion `json:"assertions,omitempty"` // response assertions
+	Created    int64       `json:"created"`
+}
+
+// Assertion defines a check to run against a response.
+type Assertion struct {
+	Target   string `json:"target"`   // "status", "latency", "header", "body_contains", "body_json"
+	Property string `json:"property"` // header name or JSON path (e.g. "Content-Type" or "data.id")
+	Operator string `json:"operator"` // "eq", "neq", "lt", "gt", "contains", "exists"
+	Value    string `json:"value"`    // expected value
+}
+
+// AssertionResult is the outcome of evaluating one assertion.
+type AssertionResult struct {
+	Assertion Assertion `json:"assertion"`
+	Passed    bool      `json:"passed"`
+	Actual    string    `json:"actual"`
+	Error     string    `json:"error,omitempty"`
+}
+
+// WSMessage is a single captured WebSocket frame.
+type WSMessage struct {
+	ID        int    `json:"id"`
+	SessionID string `json:"session_id"`
+	Subdomain string `json:"subdomain"`
+	Direction string `json:"direction"` // "in" (visitor→local) or "out" (local→visitor)
+	IsText    bool   `json:"is_text"`
+	Payload   string `json:"payload"` // raw text or base64 for binary
+	Size      int    `json:"size"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// RunResult is the outcome of running one request in a collection run.
+type RunResult struct {
+	Name       string            `json:"name"`
+	Method     string            `json:"method"`
+	Path       string            `json:"path"`
+	Status     int               `json:"status"`
+	LatencyMs  float64           `json:"latency_ms"`
+	Assertions []AssertionResult `json:"assertions,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 // KVPair is a key-value pair with an enabled toggle.
@@ -138,6 +179,12 @@ type Store struct {
 	savedMu     sync.RWMutex
 	saved       []SavedRequest
 	nextSavedID int
+
+	// WebSocket messages
+	wsMu      sync.RWMutex
+	wsMessages []WSMessage
+	maxWSMsgs  int
+	nextWSID   int
 }
 
 // PausedRequest holds a paused request with its data so the UI can display/edit it.
@@ -157,9 +204,10 @@ type EditedRequest struct {
 
 func NewStore(maxLogs int) *Store {
 	return &Store{
-		tunnels: make(map[string]*TunnelStats),
-		maxLogs: maxLogs,
-		paused:  make(map[string]*PausedRequest),
+		tunnels:   make(map[string]*TunnelStats),
+		maxLogs:   maxLogs,
+		paused:    make(map[string]*PausedRequest),
+		maxWSMsgs: maxLogs,
 	}
 }
 
@@ -500,6 +548,136 @@ func (s *Store) PortForSubdomain(subdomain string) (int, bool) {
 	return 0, false
 }
 
+// --- WebSocket message recording ---
+
+func (s *Store) RecordWSMessage(subdomain, sessionID, direction string, isText bool, payload string, size int) {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	s.nextWSID++
+	msg := WSMessage{
+		ID: s.nextWSID, SessionID: sessionID, Subdomain: subdomain,
+		Direction: direction, IsText: isText, Payload: payload,
+		Size: size, Timestamp: time.Now().Unix(),
+	}
+	if len(s.wsMessages) >= s.maxWSMsgs {
+		s.wsMessages = append(s.wsMessages[1:], msg)
+	} else {
+		s.wsMessages = append(s.wsMessages, msg)
+	}
+}
+
+func (s *Store) RecentWSMessages(subdomain string, n int) []WSMessage {
+	s.wsMu.RLock()
+	defer s.wsMu.RUnlock()
+	var out []WSMessage
+	for i := len(s.wsMessages) - 1; i >= 0 && len(out) < n; i-- {
+		if subdomain == "" || s.wsMessages[i].Subdomain == subdomain {
+			out = append(out, s.wsMessages[i])
+		}
+	}
+	return out
+}
+
+func (s *Store) ClearWSMessages() {
+	s.wsMu.Lock()
+	s.wsMessages = nil
+	s.nextWSID = 0
+	s.wsMu.Unlock()
+}
+
+// --- Assertion evaluation ---
+
+func EvaluateAssertions(assertions []Assertion, status int, latencyMs float64, headers map[string][]string, body string) []AssertionResult {
+	results := make([]AssertionResult, 0, len(assertions))
+	for _, a := range assertions {
+		r := AssertionResult{Assertion: a}
+		switch a.Target {
+		case "status":
+			r.Actual = strconv.Itoa(status)
+			r.Passed = compareStr(r.Actual, a.Operator, a.Value)
+		case "latency":
+			r.Actual = fmt.Sprintf("%.0f", latencyMs)
+			r.Passed = compareStr(r.Actual, a.Operator, a.Value)
+		case "header":
+			val := ""
+			for k, v := range headers {
+				if strings.EqualFold(k, a.Property) && len(v) > 0 {
+					val = v[0]
+					break
+				}
+			}
+			r.Actual = val
+			if a.Operator == "exists" {
+				r.Passed = val != ""
+			} else {
+				r.Passed = compareStr(val, a.Operator, a.Value)
+			}
+		case "body_contains":
+			r.Actual = fmt.Sprintf("len=%d", len(body))
+			r.Passed = strings.Contains(body, a.Value)
+		case "body_json":
+			r.Actual = extractJSONPath(body, a.Property)
+			if a.Operator == "exists" {
+				r.Passed = r.Actual != ""
+			} else {
+				r.Passed = compareStr(r.Actual, a.Operator, a.Value)
+			}
+		default:
+			r.Error = "unknown target: " + a.Target
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
+func compareStr(actual, op, expected string) bool {
+	switch op {
+	case "eq":
+		return actual == expected
+	case "neq":
+		return actual != expected
+	case "contains":
+		return strings.Contains(actual, expected)
+	case "lt":
+		a, _ := strconv.ParseFloat(actual, 64)
+		e, _ := strconv.ParseFloat(expected, 64)
+		return a < e
+	case "gt":
+		a, _ := strconv.ParseFloat(actual, 64)
+		e, _ := strconv.ParseFloat(expected, 64)
+		return a > e
+	}
+	return false
+}
+
+// extractJSONPath does simple dot-path extraction: "data.user.id" from JSON.
+func extractJSONPath(body, path string) string {
+	var obj any
+	if err := json.Unmarshal([]byte(body), &obj); err != nil {
+		return ""
+	}
+	parts := strings.Split(path, ".")
+	cur := obj
+	for _, p := range parts {
+		switch v := cur.(type) {
+		case map[string]any:
+			cur = v[p]
+		case []any:
+			idx, err := strconv.Atoi(p)
+			if err != nil || idx < 0 || idx >= len(v) {
+				return ""
+			}
+			cur = v[idx]
+		default:
+			return ""
+		}
+	}
+	if cur == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", cur)
+}
+
 // --- Plugin wiring ---
 
 type Plugin struct {
@@ -523,14 +701,24 @@ func (p *Plugin) WorkerConfig() map[string]any { return nil }
 func (p *Plugin) RequestHooks() []hooks.RequestHook {
 	return []hooks.RequestHook{
 		&interceptHook{store: p.store},
-		&reqHook{store: p.store},
+		&reqHook{store: p.store, plugin: p},
 	}
 }
 func (p *Plugin) ConnectionHooks() []hooks.ConnectionHook {
 	return []hooks.ConnectionHook{&connHook{store: p.store, plugin: p}}
 }
 
+func (p *Plugin) WSHooks() []hooks.WSHook {
+	return []hooks.WSHook{&wsHook{store: p.store, plugin: p}}
+}
+
 func (p *Plugin) Store() *Store { return p.store }
+
+func (p *Plugin) broadcast(event string, data any) {
+	if p.server != nil {
+		p.server.Broadcast(event, data)
+	}
+}
 
 func (p *Plugin) startDashboard() {
 	if p.dashboardPort == 0 || p.server != nil {
@@ -550,6 +738,7 @@ func (p *Plugin) startDashboard() {
 type reqHook struct {
 	hooks.NoOpRequestHook
 	store   *Store
+	plugin  *Plugin
 	pending sync.Map
 }
 
@@ -573,6 +762,10 @@ func (h *reqHook) AfterProxy(req types.TunnelRequest, resp types.TunnelResponse)
 		subdomain = meta.subdomain
 	}
 	h.store.RecordRequest(subdomain, req, resp, latency)
+	h.plugin.broadcast("request", map[string]any{
+		"subdomain": subdomain, "method": req.Method, "path": req.Path,
+		"status": resp.Status, "latency_ms": latency.Milliseconds(),
+	})
 	return resp
 }
 
@@ -585,14 +778,30 @@ type connHook struct {
 func (h *connHook) OnConnect(subdomain string, port int) {
 	h.store.RecordConnect(subdomain, port)
 	h.plugin.startDashboard()
+	h.plugin.broadcast("tunnel", map[string]any{"action": "connect", "subdomain": subdomain, "port": port})
 }
 
 func (h *connHook) OnDisconnect(subdomain string, err error) {
 	h.store.RecordDisconnect(subdomain)
+	h.plugin.broadcast("tunnel", map[string]any{"action": "disconnect", "subdomain": subdomain})
 }
 
 func (h *connHook) OnRequest(subdomain string) {
 	h.store.SetPendingSubdomain(subdomain)
+}
+
+// --- WS hook ---
+
+type wsHook struct {
+	store  *Store
+	plugin *Plugin
+}
+
+func (h *wsHook) OnWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int) {
+	h.store.RecordWSMessage(subdomain, sessionID, direction, isText, payload, size)
+	h.plugin.broadcast("ws_frame", map[string]any{
+		"subdomain": subdomain, "session_id": sessionID, "direction": direction,
+	})
 }
 
 // --- Intercept hook ---

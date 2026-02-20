@@ -6,6 +6,8 @@ import type {
   PausedRequest,
   SavedRequest,
   SendResult,
+  WSMessage,
+  RunResult,
 } from './types';
 
 const API_BASE = '';
@@ -172,4 +174,37 @@ export const api = {
 
   clearLogs: (): Promise<ClearResponse> =>
     post<ClearResponse>('/api/stats/clear'),
+
+  exportUrl: (subdomain?: string): string => {
+    const params = new URLSearchParams();
+    if (subdomain) params.set('subdomain', subdomain);
+    const qs = params.toString();
+    return `${API_BASE}/api/stats/export${qs ? '?' + qs : ''}`;
+  },
+
+  importSaved: (saved: Partial<SavedRequest>[]): Promise<{ imported: number }> =>
+    post<{ imported: number }>('/api/stats/import/saved', { saved }),
+
+  subscribeSSE: (handlers: {
+    onRequest?: (data: any) => void;
+    onTunnel?: (data: any) => void;
+    onWSFrame?: (data: any) => void;
+  }): (() => void) => {
+    const es = new EventSource(`${API_BASE}/api/stats/events`);
+    if (handlers.onRequest) es.addEventListener('request', (e) => handlers.onRequest!(JSON.parse(e.data)));
+    if (handlers.onTunnel) es.addEventListener('tunnel', (e) => handlers.onTunnel!(JSON.parse(e.data)));
+    if (handlers.onWSFrame) es.addEventListener('ws_frame', (e) => handlers.onWSFrame!(JSON.parse(e.data)));
+    return () => es.close();
+  },
+
+  fetchWSMessages: (subdomain?: string, limit = 200): Promise<WSMessage[]> =>
+    get<{ messages: WSMessage[] }>(`/api/stats/ws/messages?${new URLSearchParams({ ...(subdomain ? { subdomain } : {}), limit: String(limit) })}`)
+      .then(r => r.messages ?? []),
+
+  clearWSMessages: (): Promise<void> =>
+    del('/api/stats/ws/messages'),
+
+  runCollection: (subdomain: string, ids?: number[]): Promise<RunResult[]> =>
+    post<{ results: RunResult[] }>('/api/stats/run', { subdomain, ids })
+      .then(r => r.results ?? []),
 };

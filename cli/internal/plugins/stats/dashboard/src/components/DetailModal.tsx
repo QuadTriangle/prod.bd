@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { RequestEntry } from '../lib/types';
 import { formatBytes, formatLatency, statusColor, methodColor } from '../lib/utils';
+import { JsonViewer } from './JsonViewer';
 
 interface Props {
   request: RequestEntry;
@@ -91,20 +92,27 @@ function HeadersView({ headers }: { headers?: Record<string, string[]> }) {
 
 function BodyView({ body, showToast }: { body?: string; showToast: (msg: string) => void }) {
   if (!body) return <div className="text-dim text-sm text-center py-8">No body</div>;
-  let display = body;
-  try { display = JSON.stringify(JSON.parse(body), null, 2); } catch {}
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(body); } catch {}
+  const display = parsed !== null ? JSON.stringify(parsed, null, 2) : body;
   return (
     <div className="relative">
-      <pre className="bg-pre-bg border border-border rounded-lg p-4 mono text-sm text-input-text whitespace-pre-wrap break-all overflow-x-auto max-h-[50vh]">
-        {display}
-      </pre>
       <button
-        className="absolute top-2 right-2 bg-transparent border border-border rounded-md w-7 h-7 cursor-pointer flex items-center justify-center text-xs text-muted hover:border-muted hover:text-text"
+        className="absolute top-2 right-2 z-10 bg-transparent border border-border rounded-md w-7 h-7 cursor-pointer flex items-center justify-center text-xs text-muted hover:border-muted hover:text-text"
         title="Copy body"
         onClick={() => { navigator.clipboard.writeText(display); showToast('Copied'); }}
       >
         ⎘
       </button>
+      {parsed !== null ? (
+        <div className="bg-pre-bg border border-border rounded-lg p-4 overflow-auto max-h-[50vh]">
+          <JsonViewer data={parsed} />
+        </div>
+      ) : (
+        <pre className="bg-pre-bg border border-border rounded-lg p-4 mono text-sm text-input-text whitespace-pre-wrap break-all overflow-x-auto max-h-[50vh]">
+          {body}
+        </pre>
+      )}
     </div>
   );
 }

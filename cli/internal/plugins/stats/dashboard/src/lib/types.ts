@@ -66,6 +66,7 @@ export interface SavedRequest {
   headers?: KVPair[];
   body_type: string;
   body?: string;
+  assertions?: Assertion[];
   created: number;
 }
 
@@ -83,6 +84,7 @@ export interface ComposerState {
   bodyType: string;
   body: string;
   name: string;
+  assertions: Assertion[];
 }
 
 export interface SendResult {
@@ -90,4 +92,39 @@ export interface SendResult {
   latency_ms: number;
   headers: Record<string, string[]>;
   body: string;
+}
+
+export interface Assertion {
+  target: string;   // "status" | "latency" | "header" | "body_contains" | "body_json"
+  property: string; // header name or JSON path
+  operator: string; // "eq" | "neq" | "lt" | "gt" | "contains" | "exists"
+  value: string;
+}
+
+export interface AssertionResult {
+  assertion: Assertion;
+  passed: boolean;
+  actual: string;
+  error?: string;
+}
+
+export interface WSMessage {
+  id: number;
+  session_id: string;
+  subdomain: string;
+  direction: string; // "in" | "out"
+  is_text: boolean;
+  payload: string;
+  size: number;
+  timestamp: number;
+}
+
+export interface RunResult {
+  name: string;
+  method: string;
+  path: string;
+  status: number;
+  latency_ms: number;
+  assertions?: AssertionResult[];
+  error?: string;
 }

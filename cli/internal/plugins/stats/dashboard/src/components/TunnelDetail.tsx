@@ -4,6 +4,10 @@ import { formatBytes, formatLatency, timeAgo } from '../lib/utils';
 import { RequestsTab } from './RequestsTab';
 import { ComposerTab } from './ComposerTab';
 import { InterceptsTab } from './InterceptsTab';
+import { TimelineTab } from './TimelineTab';
+import { DiffTab } from './DiffTab';
+import { WSInspectorTab } from './WSInspectorTab';
+import { RunnerTab } from './RunnerTab';
 import type { ComposerState } from '../lib/types';
 
 interface Props {
@@ -13,19 +17,19 @@ interface Props {
   showToast: (msg: string) => void;
 }
 
-const tabNames = ['Requests', 'Composer', 'Intercepts'] as const;
+const tabNames = ['Requests', 'Timeline', 'Composer', 'Runner', 'Intercepts', 'Diff', 'WebSocket'] as const;
 
 const emptyKV = (): KVPair => ({ key: '', value: '', enabled: true });
 
 export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) {
   const [tab, setTab] = useState<(typeof tabNames)[number]>('Requests');
   const [composerInit, setComposerInit] = useState<ComposerState | null>(null);
+  const [diffPair, setDiffPair] = useState<[RequestEntry, RequestEntry] | null>(null);
 
   const total = tunnel.total_bytes_in + tunnel.total_bytes_out;
   const errRate = tunnel.total_requests > 0 ? ((tunnel.error_count / tunnel.total_requests) * 100).toFixed(1) + '%' : '0%';
 
   const openComposerFrom = useCallback((request: RequestEntry) => {
-    // Parse path and query params
     const [basePath, queryString] = (request.path || '/').split('?');
     let params: KVPair[] = [emptyKV()];
     if (queryString) {
@@ -58,8 +62,14 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
       bodyType,
       body,
       name: '',
+      assertions: [],
     });
     setTab('Composer');
+  }, []);
+
+  const openDiff = useCallback((a: RequestEntry, b: RequestEntry) => {
+    setDiffPair([a, b]);
+    setTab('Diff');
   }, []);
 
   return (
@@ -120,7 +130,11 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
           showToast={showToast}
           tunnel={tunnel}
           onOpenComposerFrom={openComposerFrom}
+          onOpenDiff={openDiff}
         />
+      )}
+      {tab === 'Timeline' && (
+        <TimelineTab requests={requests} />
       )}
       {tab === 'Composer' && (
         <ComposerTab
@@ -132,6 +146,15 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
       )}
       {tab === 'Intercepts' && (
         <InterceptsTab showToast={showToast} />
+      )}
+      {tab === 'Diff' && (
+        <DiffTab requests={requests} initialPair={diffPair} onConsume={() => setDiffPair(null)} />
+      )}
+      {tab === 'Runner' && (
+        <RunnerTab tunnel={tunnel} showToast={showToast} />
+      )}
+      {tab === 'WebSocket' && (
+        <WSInspectorTab subdomain={tunnel.subdomain} showToast={showToast} />
       )}
     </div>
   );

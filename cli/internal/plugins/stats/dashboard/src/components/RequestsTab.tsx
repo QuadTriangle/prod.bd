@@ -12,14 +12,16 @@ interface Props {
   onRefresh: () => void;
   showToast: (msg: string) => void;
   onOpenComposerFrom?: (r: RequestEntry) => void;
+  onOpenDiff?: (a: RequestEntry, b: RequestEntry) => void;
 }
 
-export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComposerFrom }: Props) {
+export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComposerFrom, onOpenDiff }: Props) {
   const [filterMethod, setFilterMethod] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchPath, setSearchPath] = useState('');
   const [modalReq, setModalReq] = useState<RequestEntry | null>(null);
   const [replayResult, setReplayResult] = useState<SendResult | null>(null);
+  const [diffSelect, setDiffSelect] = useState<RequestEntry | null>(null);
 
   const filtered = requests.filter(request => {
     if (filterMethod !== 'ALL' && request.method !== filterMethod) return false;
@@ -100,6 +102,12 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
           <button onClick={clearLogs} className="text-xs px-3 py-1.5 rounded-lg bg-input-bg text-input-text border-none cursor-pointer hover:bg-dim">
             🗑 Clear
           </button>
+          <a href={api.exportUrl(tunnel.subdomain)} download className="text-xs px-3 py-1.5 rounded-lg bg-input-bg text-input-text no-underline cursor-pointer hover:bg-dim">
+            ⬇ HAR
+          </a>
+          {diffSelect && (
+            <span className="text-xs text-accent">Click another row to diff with #{diffSelect.id}</span>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
@@ -117,7 +125,14 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
                 <tr><td colSpan={8} className="text-center text-dim py-8">No requests yet</td></tr>
               ) : (
                 filtered.map(request => (
-                  <tr key={request.id} className="cursor-pointer hover:bg-hover-bg" onClick={() => setModalReq(request)}>
+                  <tr key={request.id} className={`cursor-pointer hover:bg-hover-bg ${diffSelect?.id === request.id ? 'bg-accent/5' : ''}`} onClick={() => {
+                    if (diffSelect && diffSelect.id !== request.id) {
+                      onOpenDiff?.(diffSelect, request);
+                      setDiffSelect(null);
+                    } else {
+                      setModalReq(request);
+                    }
+                  }}>
                     <td className="px-4 py-2 border-b border-td-border">
                       <span className={`px-1.5 py-0.5 rounded text-[.7rem] mono font-bold ${methodColor(request.method)}`}>{request.method}</span>
                     </td>
@@ -132,6 +147,7 @@ export function RequestsTab({ requests, tunnel, onRefresh, showToast, onOpenComp
                         <IconBtn title="Replay" onClick={e => { e.stopPropagation(); replayReq(request.id); }}>↻</IconBtn>
                         <IconBtn title="Copy cURL" onClick={e => { e.stopPropagation(); copyCurl(request.id); }}>⎘</IconBtn>
                         <IconBtn title="Edit & Resend" onClick={e => { e.stopPropagation(); editAndResend(request); }}>✎</IconBtn>
+                        <IconBtn title="Compare (diff)" onClick={e => { e.stopPropagation(); setDiffSelect(prev => prev?.id === request.id ? null : request); }}>⇔</IconBtn>
                       </div>
                     </td>
                   </tr>

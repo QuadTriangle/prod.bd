@@ -131,7 +131,7 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 	}()
 
 	// WebSocket relay for visitor WS sessions
-	wsRelay := proxy.NewWSRelay(localPort, writeJSON)
+	wsRelay := proxy.NewWSRelay(localPort, subdomain, writeJSON, pipeline)
 
 	// Main read loop
 	for {
@@ -180,6 +180,7 @@ func handleMessage(raw []byte, localPort int, subdomain string, writeJSON func(a
 			log.Printf("Error unmarshaling ws-open: %v", err)
 			return
 		}
+		pipeline.NotifyWSFrame(subdomain, msg.ID, "in", true, "", 0)
 		wsRelay.HandleOpen(msg)
 
 	case types.TypeWSFrame:
@@ -188,6 +189,7 @@ func handleMessage(raw []byte, localPort int, subdomain string, writeJSON func(a
 			log.Printf("Error unmarshaling ws-frame: %v", err)
 			return
 		}
+		pipeline.NotifyWSFrame(subdomain, msg.ID, "in", msg.IsText, msg.Payload, len(msg.Payload))
 		wsRelay.HandleFrame(msg)
 
 	case types.TypeWSClose:
