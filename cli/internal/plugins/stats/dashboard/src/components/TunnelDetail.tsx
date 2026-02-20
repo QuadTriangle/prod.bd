@@ -8,6 +8,7 @@ import { TimelineTab } from './TimelineTab';
 import { DiffTab } from './DiffTab';
 import { WSInspectorTab } from './WSInspectorTab';
 import { RunnerTab } from './RunnerTab';
+import { UpstreamsTab } from './UpstreamsTab';
 import type { ComposerState } from '../lib/types';
 
 interface Props {
@@ -17,7 +18,7 @@ interface Props {
   showToast: (msg: string) => void;
 }
 
-const tabNames = ['Requests', 'Timeline', 'Composer', 'Runner', 'Intercepts', 'Diff', 'WebSocket'] as const;
+const tabNames = ['Requests', 'Timeline', 'Composer', 'Runner', 'Intercepts', 'Upstreams', 'Diff', 'WebSocket'] as const;
 
 const emptyKV = (): KVPair => ({ key: '', value: '', enabled: true });
 
@@ -146,6 +147,9 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
       )}
       {tab === 'Intercepts' && (
         <InterceptsTab showToast={showToast} />
+      )}
+      {tab === 'Upstreams' && (
+        <UpstreamsTab subdomain={tunnel.subdomain} showToast={showToast} />
       )}
       {tab === 'Diff' && (
         <DiffTab requests={requests} initialPair={diffPair} onConsume={() => setDiffPair(null)} />

@@ -11,6 +11,16 @@ export interface Tunnel {
   connected_at: number;
 }
 
+export interface UpstreamRoute {
+  id: number;
+  subdomain: string;
+  path_pattern: string;
+  methods?: string[];
+  target: string;
+  enabled: boolean;
+  priority: number;
+}
+
 export interface RequestEntry {
   id: number;
   subdomain: string;

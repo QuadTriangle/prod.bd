@@ -38,3 +38,4 @@ func (p *plugin) WorkerConfig() map[string]any {
 func (p *plugin) RequestHooks() []hooks.RequestHook       { return nil }
 func (p *plugin) ConnectionHooks() []hooks.ConnectionHook { return nil }
 func (p *plugin) WSHooks() []hooks.WSHook                 { return nil }
+func (p *plugin) ProxyHooks() []hooks.ProxyHook           { return nil }

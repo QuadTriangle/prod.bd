@@ -130,8 +130,12 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 		}
 	}()
 
-	// WebSocket relay for visitor WS sessions
-	wsRelay := proxy.NewWSRelay(localPort, subdomain, writeJSON, pipeline)
+	defaultUpstream := proxy.DefaultTarget(localPort)
+
+	// WebSocket relay with dynamic upstream resolution
+	wsRelay := proxy.NewWSRelay(defaultUpstream, subdomain, writeJSON, func(msg types.WSOpen) string {
+		return pipeline.ResolveWS(subdomain, msg)
+	}, pipeline)
 
 	// Main read loop
 	for {
@@ -144,12 +148,12 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 			continue
 		}
 
-		go handleMessage(message, localPort, subdomain, writeJSON, wsRelay, pipeline)
+		go handleMessage(message, defaultUpstream, subdomain, writeJSON, wsRelay, pipeline)
 	}
 }
 
 // handleMessage routes an incoming tunnel message by its type field.
-func handleMessage(raw []byte, localPort int, subdomain string, writeJSON func(any) error, wsRelay *proxy.WSRelay, pipeline *hooks.Pipeline) {
+func handleMessage(raw []byte, defaultUpstream string, subdomain string, writeJSON func(any) error, wsRelay *proxy.WSRelay, pipeline *hooks.Pipeline) {
 	// Peek at the type field to route without fully unmarshaling into the wrong struct
 	var envelope struct {
 		Type string `json:"type"`
@@ -168,7 +172,14 @@ func handleMessage(raw []byte, localPort int, subdomain string, writeJSON func(a
 		}
 		pipeline.NotifyRequest(subdomain)
 		req = pipeline.RunBeforeProxy(req)
-		resp := proxy.HandleRequest(req, localPort)
+
+		// Resolve upstream: plugin hook wins, otherwise default localhost
+		upstream := pipeline.ResolveHTTP(subdomain, req)
+		if upstream == "" {
+			upstream = defaultUpstream
+		}
+
+		resp := proxy.HandleRequest(req, upstream)
 		resp = pipeline.RunAfterProxy(req, resp)
 		if err := writeJSON(resp); err != nil {
 			log.Printf("Error sending HTTP response: %v", err)

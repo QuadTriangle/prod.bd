@@ -6,12 +6,21 @@ import (
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 )
 
-// --- Hook interfaces (unchanged) ---
+// --- Hook interfaces ---
 
 // RequestHook intercepts HTTP requests/responses flowing through the tunnel.
 type RequestHook interface {
 	BeforeProxy(req types.TunnelRequest) types.TunnelRequest
 	AfterProxy(req types.TunnelRequest, resp types.TunnelResponse) types.TunnelResponse
+}
+
+// ProxyHook resolves the upstream target for a request.
+// Return nil to use the default localhost:port.
+type ProxyHook interface {
+	// ResolveHTTP returns an upstream URL for an HTTP request, or "" for default.
+	ResolveHTTP(subdomain string, req types.TunnelRequest) string
+	// ResolveWS returns an upstream URL for a WebSocket open, or "" for default.
+	ResolveWS(subdomain string, msg types.WSOpen) string
 }
 
 // ConnectionHook observes tunnel lifecycle events.
@@ -62,16 +71,19 @@ type Plugin interface {
 	ConnectionHooks() []ConnectionHook
 	// WSHooks returns WebSocket hooks to add to the pipeline, or nil.
 	WSHooks() []WSHook
+	// ProxyHooks returns proxy hooks for upstream resolution, or nil.
+	ProxyHooks() []ProxyHook
 }
 
 // --- Pipeline ---
 
 // Pipeline runs registered hooks in order. Zero-value is ready to use.
 type Pipeline struct {
-	plugins   []Plugin
-	reqHooks  []RequestHook
-	connHooks []ConnectionHook
-	wsHooks   []WSHook
+	plugins    []Plugin
+	reqHooks   []RequestHook
+	connHooks  []ConnectionHook
+	wsHooks    []WSHook
+	proxyHooks []ProxyHook
 }
 
 // RegisterPlugin adds a plugin. Call before flag.Parse().
@@ -101,6 +113,9 @@ func (p *Pipeline) Activate() {
 		}
 		for _, h := range pl.WSHooks() {
 			p.wsHooks = append(p.wsHooks, h)
+		}
+		for _, h := range pl.ProxyHooks() {
+			p.proxyHooks = append(p.proxyHooks, h)
 		}
 	}
 }
@@ -137,6 +152,26 @@ func (p *Pipeline) RunAfterProxy(req types.TunnelRequest, resp types.TunnelRespo
 		resp = h.AfterProxy(req, resp)
 	}
 	return resp
+}
+
+// ResolveHTTP asks proxy hooks for an upstream URL. First non-empty wins.
+func (p *Pipeline) ResolveHTTP(subdomain string, req types.TunnelRequest) string {
+	for _, h := range p.proxyHooks {
+		if u := h.ResolveHTTP(subdomain, req); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+// ResolveWS asks proxy hooks for an upstream URL. First non-empty wins.
+func (p *Pipeline) ResolveWS(subdomain string, msg types.WSOpen) string {
+	for _, h := range p.proxyHooks {
+		if u := h.ResolveWS(subdomain, msg); u != "" {
+			return u
+		}
+	}
+	return ""
 }
 
 func (p *Pipeline) NotifyConnect(subdomain string, port int) {

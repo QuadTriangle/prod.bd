@@ -8,6 +8,7 @@ import type {
   SendResult,
   WSMessage,
   RunResult,
+  UpstreamRoute,
 } from './types';
 
 const API_BASE = '';
@@ -207,4 +208,17 @@ export const api = {
   runCollection: (subdomain: string, ids?: number[]): Promise<RunResult[]> =>
     post<{ results: RunResult[] }>('/api/stats/run', { subdomain, ids })
       .then(r => r.results ?? []),
+
+  fetchUpstreams: (): Promise<UpstreamRoute[]> =>
+    get<{ routes: UpstreamRoute[] }>('/api/stats/upstreams')
+      .then(r => r.routes ?? []),
+
+  addUpstream: (route: Partial<UpstreamRoute>): Promise<UpstreamRoute> =>
+    post<UpstreamRoute>('/api/stats/upstreams', route),
+
+  updateUpstream: (id: number, route: Partial<UpstreamRoute>): Promise<UpstreamRoute> =>
+    put<UpstreamRoute>(`/api/stats/upstreams/${id}`, route),
+
+  deleteUpstream: (id: number): Promise<void> =>
+    del(`/api/stats/upstreams/${id}`),
 };

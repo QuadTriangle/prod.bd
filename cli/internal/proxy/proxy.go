@@ -13,7 +13,14 @@ import (
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 )
 
-func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse {
+// DefaultTarget returns the default localhost URL for a given port.
+func DefaultTarget(localPort int) string {
+	host := config.GetTargetHost()
+	return fmt.Sprintf("http://%s:%d", host, localPort)
+}
+
+// HandleRequest proxies a tunnel request to the given upstream base URL.
+func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelResponse {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		// Don't follow redirects, let the browser handle them
@@ -22,8 +29,7 @@ func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse 
 		},
 	}
 
-	host := config.GetTargetHost()
-	targetURL := fmt.Sprintf("http://%s:%d%s", host, localPort, req.Path)
+	targetURL := upstream + req.Path
 
 	var body io.Reader
 	if req.Body != "" {
@@ -60,8 +66,8 @@ func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse 
 		httpReq.Header[canonical] = vals
 	}
 
-	// Many local dev servers check Host header
-	httpReq.Host = fmt.Sprintf("%s:%d", host, localPort)
+	// Set Host to match the upstream target
+	httpReq.Host = httpReq.URL.Host
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -69,7 +75,7 @@ func HandleRequest(req types.TunnelRequest, localPort int) types.TunnelResponse 
 			Type:   types.TypeHTTPResponse,
 			ID:     req.ID,
 			Status: 502,
-			Body:   base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "Failed to connect to local port %d: %v", localPort, err)),
+			Body:   base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "Failed to connect to %s: %v", upstream, err)),
 		}
 	}
 	defer resp.Body.Close()

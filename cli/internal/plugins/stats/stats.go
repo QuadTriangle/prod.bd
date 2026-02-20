@@ -124,6 +124,43 @@ type WSMessage struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+// UpstreamRoute defines a routing rule: requests matching the pattern go to the target URL.
+type UpstreamRoute struct {
+	ID          int      `json:"id"`
+	Subdomain   string   `json:"subdomain"`              // which tunnel this applies to ("*" = all)
+	PathPattern string   `json:"path_pattern"`            // regex to match request path
+	Methods     []string `json:"methods,omitempty"`       // empty = all methods
+	Target      string   `json:"target"`                  // upstream base URL e.g. "https://api.prod.com"
+	Enabled     bool     `json:"enabled"`
+	Priority    int      `json:"priority"`                // higher = checked first
+	compiled    *regexp.Regexp
+}
+
+func (r *UpstreamRoute) matches(subdomain, method, path string) bool {
+	if !r.Enabled {
+		return false
+	}
+	if r.Subdomain != "*" && r.Subdomain != subdomain {
+		return false
+	}
+	if len(r.Methods) > 0 {
+		found := false
+		for _, m := range r.Methods {
+			if strings.EqualFold(m, method) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	if r.compiled == nil {
+		return false
+	}
+	return r.compiled.MatchString(path)
+}
+
 // RunResult is the outcome of running one request in a collection run.
 type RunResult struct {
 	Name       string            `json:"name"`
@@ -181,10 +218,15 @@ type Store struct {
 	nextSavedID int
 
 	// WebSocket messages
-	wsMu      sync.RWMutex
+	wsMu       sync.RWMutex
 	wsMessages []WSMessage
 	maxWSMsgs  int
 	nextWSID   int
+
+	// Upstream routes: path-based routing rules per subdomain
+	upstreamMu      sync.RWMutex
+	upstreams       []UpstreamRoute
+	nextUpstreamID  int
 }
 
 // PausedRequest holds a paused request with its data so the UI can display/edit it.
@@ -275,6 +317,78 @@ func (s *Store) MatchingIntercepts(method, path string) []InterceptRule {
 		}
 	}
 	return out
+}
+
+// --- Upstream route CRUD ---
+
+func (s *Store) AddUpstream(route UpstreamRoute) (UpstreamRoute, error) {
+	compiled, err := regexp.Compile(route.PathPattern)
+	if err != nil {
+		return UpstreamRoute{}, err
+	}
+	route.compiled = compiled
+	s.upstreamMu.Lock()
+	defer s.upstreamMu.Unlock()
+	s.nextUpstreamID++
+	route.ID = s.nextUpstreamID
+	s.upstreams = append(s.upstreams, route)
+	return route, nil
+}
+
+func (s *Store) ListUpstreams() []UpstreamRoute {
+	s.upstreamMu.RLock()
+	defer s.upstreamMu.RUnlock()
+	out := make([]UpstreamRoute, len(s.upstreams))
+	copy(out, s.upstreams)
+	return out
+}
+
+func (s *Store) UpdateUpstream(id int, route UpstreamRoute) (UpstreamRoute, error) {
+	compiled, err := regexp.Compile(route.PathPattern)
+	if err != nil {
+		return UpstreamRoute{}, err
+	}
+	s.upstreamMu.Lock()
+	defer s.upstreamMu.Unlock()
+	for i := range s.upstreams {
+		if s.upstreams[i].ID == id {
+			route.ID = id
+			route.compiled = compiled
+			s.upstreams[i] = route
+			return route, nil
+		}
+	}
+	return UpstreamRoute{}, fmt.Errorf("upstream %d not found", id)
+}
+
+func (s *Store) DeleteUpstream(id int) bool {
+	s.upstreamMu.Lock()
+	defer s.upstreamMu.Unlock()
+	for i := range s.upstreams {
+		if s.upstreams[i].ID == id {
+			s.upstreams = append(s.upstreams[:i], s.upstreams[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveUpstream finds the highest-priority matching upstream for a request.
+func (s *Store) ResolveUpstream(subdomain, method, path string) string {
+	s.upstreamMu.RLock()
+	defer s.upstreamMu.RUnlock()
+	best := -1
+	bestPriority := -1
+	for i, r := range s.upstreams {
+		if r.matches(subdomain, method, path) && r.Priority > bestPriority {
+			best = i
+			bestPriority = r.Priority
+		}
+	}
+	if best >= 0 {
+		return s.upstreams[best].Target
+	}
+	return ""
 }
 
 // --- Pause support (enhanced: can edit before resume) ---
@@ -712,6 +826,10 @@ func (p *Plugin) WSHooks() []hooks.WSHook {
 	return []hooks.WSHook{&wsHook{store: p.store, plugin: p}}
 }
 
+func (p *Plugin) ProxyHooks() []hooks.ProxyHook {
+	return []hooks.ProxyHook{&upstreamHook{store: p.store}}
+}
+
 func (p *Plugin) Store() *Store { return p.store }
 
 func (p *Plugin) broadcast(event string, data any) {
@@ -734,6 +852,20 @@ func (p *Plugin) startDashboard() {
 }
 
 // --- Hooks ---
+
+// --- Upstream proxy hook ---
+
+type upstreamHook struct {
+	store *Store
+}
+
+func (h *upstreamHook) ResolveHTTP(subdomain string, req types.TunnelRequest) string {
+	return h.store.ResolveUpstream(subdomain, req.Method, req.Path)
+}
+
+func (h *upstreamHook) ResolveWS(subdomain string, msg types.WSOpen) string {
+	return h.store.ResolveUpstream(subdomain, "GET", msg.Path)
+}
 
 type reqHook struct {
 	hooks.NoOpRequestHook

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 
-	"github.com/QuadTriangle/prod.bd/cli/internal/config"
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
 
 	"github.com/gorilla/websocket"
@@ -26,12 +26,16 @@ func (s *wsSession) writeMessage(msgType int, data []byte) error {
 	return s.conn.WriteMessage(msgType, data)
 }
 
+// UpstreamResolver returns the upstream base URL for a WS open, or "" for default.
+type UpstreamResolver func(msg types.WSOpen) string
+
 // WSRelay manages proxied visitor WebSocket sessions for a single tunnel connection.
 type WSRelay struct {
-	localPort int
-	subdomain string
-	writeJSON func(v any) error
-	pipeline  interface {
+	defaultUpstream string
+	subdomain       string
+	writeJSON       func(v any) error
+	resolve         UpstreamResolver
+	pipeline        interface {
 		NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
 	}
 
@@ -39,22 +43,40 @@ type WSRelay struct {
 	sessions map[string]*wsSession
 }
 
-func NewWSRelay(localPort int, subdomain string, writeJSON func(v any) error, pipeline interface {
+func NewWSRelay(defaultUpstream string, subdomain string, writeJSON func(v any) error, resolve UpstreamResolver, pipeline interface {
 	NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
 }) *WSRelay {
 	return &WSRelay{
-		localPort: localPort,
-		subdomain: subdomain,
-		writeJSON: writeJSON,
-		pipeline:  pipeline,
-		sessions:  make(map[string]*wsSession),
+		defaultUpstream: defaultUpstream,
+		subdomain:       subdomain,
+		writeJSON:       writeJSON,
+		resolve:         resolve,
+		pipeline:        pipeline,
+		sessions:        make(map[string]*wsSession),
 	}
 }
 
-// HandleOpen dials the local WebSocket server and starts relaying frames.
+// HandleOpen dials the upstream WebSocket server and starts relaying frames.
 func (r *WSRelay) HandleOpen(msg types.WSOpen) {
-	host := config.GetTargetHost()
-	localURL := fmt.Sprintf("ws://%s:%d%s", host, r.localPort, msg.Path)
+	upstream := r.defaultUpstream
+	if r.resolve != nil {
+		if u := r.resolve(msg); u != "" {
+			upstream = u
+		}
+	}
+
+	// Convert http(s) upstream to ws(s)
+	parsed, err := url.Parse(upstream)
+	if err != nil {
+		log.Printf("WS open: bad upstream URL %q: %v", upstream, err)
+		_ = r.writeJSON(types.WSClose{Type: types.TypeWSClose, ID: msg.ID, Code: 1011, Reason: "Bad upstream URL"})
+		return
+	}
+	wsScheme := "ws"
+	if parsed.Scheme == "https" {
+		wsScheme = "wss"
+	}
+	localURL := fmt.Sprintf("%s://%s%s", wsScheme, parsed.Host, msg.Path)
 
 	reqHeader := http.Header{}
 	for k, vals := range msg.Headers {
@@ -68,16 +90,16 @@ func (r *WSRelay) HandleOpen(msg types.WSOpen) {
 			reqHeader[canonical] = vals
 		}
 	}
-	reqHeader.Set("Host", fmt.Sprintf("%s:%d", host, r.localPort))
+	reqHeader.Set("Host", parsed.Host)
 
 	localConn, _, err := websocket.DefaultDialer.Dial(localURL, reqHeader)
 	if err != nil {
-		log.Printf("WS open to local failed for session %s: %v", msg.ID, err)
+		log.Printf("WS open to %s failed for session %s: %v", upstream, msg.ID, err)
 		_ = r.writeJSON(types.WSClose{
 			Type:   types.TypeWSClose,
 			ID:     msg.ID,
 			Code:   1011,
-			Reason: "Failed to connect to local WebSocket",
+			Reason: "Failed to connect to upstream WebSocket",
 		})
 		return
 	}

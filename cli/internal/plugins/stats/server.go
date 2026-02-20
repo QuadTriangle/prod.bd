@@ -87,6 +87,19 @@ func (s *Server) addSSEClient(c *sseClient) {
 	s.sseMu.Unlock()
 }
 
+// resolveTarget returns the upstream base URL for a request.
+// If an upstream route matches, it wins; otherwise falls back to localhost:port.
+func (s *Server) resolveTarget(subdomain, method, path string) (string, bool) {
+	port, ok := s.store.PortForSubdomain(subdomain)
+	if !ok {
+		return "", false
+	}
+	if target := s.store.ResolveUpstream(subdomain, method, path); target != "" {
+		return target, true
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", port), true
+}
+
 func (s *Server) removeSSEClient(c *sseClient) {
 	s.sseMu.Lock()
 	delete(s.clients, c)
@@ -131,6 +144,8 @@ func StartServer(store *Store, port int) (*Server, error) {
 	mux.HandleFunc("/api/stats/import/saved", s.handleImportSaved)
 	mux.HandleFunc("/api/stats/ws/messages", s.handleWSMessages)
 	mux.HandleFunc("/api/stats/run", s.handleCollectionRun)
+	mux.HandleFunc("/api/stats/upstreams", s.handleUpstreams)
+	mux.HandleFunc("/api/stats/upstreams/", s.handleUpstreamByID)
 	// Serve built Astro static files from dashboard/dist
 	distFS, _ := fs.Sub(dashboardFS, "dashboard/dist")
 	fileServer := http.FileServer(http.FS(distFS))
@@ -266,12 +281,13 @@ func (s *Server) handleReplay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "request not found", http.StatusNotFound)
 		return
 	}
-	port, ok := s.store.PortForSubdomain(entry.Subdomain)
+	_, ok := s.store.PortForSubdomain(entry.Subdomain)
 	if !ok {
 		http.Error(w, "tunnel no longer connected", http.StatusGone)
 		return
 	}
-	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, entry.Path)
+	base, _ := s.resolveTarget(entry.Subdomain, entry.Method, entry.Path)
+	targetURL := base + entry.Path
 	var body io.Reader
 	if entry.RequestBody != "" {
 		body = bytes.NewReader([]byte(entry.RequestBody))
@@ -323,12 +339,13 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	if payload.Path == "" {
 		payload.Path = "/"
 	}
-	port, ok := s.store.PortForSubdomain(payload.Subdomain)
+	_, ok := s.store.PortForSubdomain(payload.Subdomain)
 	if !ok {
 		http.Error(w, "tunnel not connected", http.StatusGone)
 		return
 	}
-	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, payload.Path)
+	base, _ := s.resolveTarget(payload.Subdomain, payload.Method, payload.Path)
+	targetURL := base + payload.Path
 	var body io.Reader
 	if payload.Body != "" {
 		body = bytes.NewReader([]byte(payload.Body))
@@ -805,6 +822,9 @@ func (s *Server) handleCollectionRun(w http.ResponseWriter, r *http.Request) {
 		if method == "" {
 			method = "GET"
 		}
+		if base, ok := s.resolveTarget(payload.Subdomain, method, path); ok {
+			targetURL = base + path
+		}
 		var body io.Reader
 		if sr.BodyType != "none" && sr.Body != "" {
 			body = bytes.NewReader([]byte(sr.Body))
@@ -847,4 +867,56 @@ func (s *Server) handleCollectionRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]any{"results": results})
+}
+
+func (s *Server) handleUpstreams(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"routes": s.store.ListUpstreams()})
+	case http.MethodPost:
+		var route UpstreamRoute
+		if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		created, err := s.store.AddUpstream(route)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, created)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleUpstreamByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/stats/upstreams/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var route UpstreamRoute
+		if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		updated, err := s.store.UpdateUpstream(id, route)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, updated)
+	case http.MethodDelete:
+		if !s.store.DeleteUpstream(id) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"deleted": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
