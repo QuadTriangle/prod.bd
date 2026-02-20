@@ -15,6 +15,7 @@ import (
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/auth"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/ipallow"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/stats"
+	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/ttl"
 	"github.com/QuadTriangle/prod.bd/cli/internal/tunnel"
 )
 
@@ -24,12 +25,10 @@ func main() {
 	// --- Register plugins ---
 	// Each plugin owns its own flags and config.
 	// To add a new feature, just add a line here:
-	//   pipeline.RegisterPlugin(inspector.New())
-	//   pipeline.RegisterPlugin(qrcode.New())
-	//   pipeline.RegisterPlugin(auth.New())
 	pipeline.RegisterPlugin(stats.New())
 	pipeline.RegisterPlugin(ipallow.New())
 	pipeline.RegisterPlugin(auth.New())
+	pipeline.RegisterPlugin(ttl.New())
 
 	// Let plugins register their flags, then parse
 	flag.Usage = func() {

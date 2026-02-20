@@ -6,6 +6,7 @@ import {
     forwardVisitorFrame, deliverFrameToVisitor,
 } from "./ws-proxy";
 import { errorPage } from "./error-page";
+import { RequestBuffer } from "./features/buffering";
 
 // --- HTTP tunnel protocol types ---
 const TYPE_HTTP_REQUEST = "http-request";
@@ -49,6 +50,8 @@ export class TunnelDO extends DurableObject {
         { subdomain: string; resolve: (resp: TunnelResponse) => void; reject: (err: Error) => void }
     >();
 
+    private buffer = new RequestBuffer();
+
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
         this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -69,7 +72,7 @@ export class TunnelDO extends DurableObject {
         return this.tunnels.get(subdomain) ?? null;
     }
 
-    // ── Routing ──────────────────────────────────────────────
+    // - Routing -----------------------
 
     async fetch(request: Request): Promise<Response> {
         const url = new URL(request.url);
@@ -83,7 +86,7 @@ export class TunnelDO extends DurableObject {
         const subdomain = url.hostname.split(".")[0];
         const tunnelWs = this.getTunnelSocket(subdomain);
         if (!tunnelWs || tunnelWs.readyState !== WebSocket.OPEN) {
-            return errorPage(502, 1, "Tunnel agent is not connected. Start the CLI to establish a tunnel.", subdomain);
+            return this.buffer.enqueue(request);
         }
 
         // Visitor WebSocket upgrade
@@ -95,7 +98,7 @@ export class TunnelDO extends DurableObject {
         return this.proxyHTTPRequest(request, tunnelWs);
     }
 
-    // ── CLI tunnel WebSocket upgrade ─────────────────────────
+    // - CLI tunnel WebSocket upgrade ------------
 
     private async handleTunnelUpgrade(request: Request): Promise<Response> {
         const url = new URL(request.url);
@@ -117,10 +120,15 @@ export class TunnelDO extends DurableObject {
         server.serializeAttachment({ subdomain } as TunnelAttachment);
         this.tunnels.set(subdomain, server);
 
+        // Drain buffered requests
+        for (const entry of this.buffer.drain()) {
+            this.proxyHTTPRequest(entry.request, server).then(entry.resolve);
+        }
+
         return new Response(null, { status: 101, webSocket: client });
     }
 
-    // ── Visitor WebSocket upgrade (proxied through tunnel) ───
+    // - Visitor WebSocket upgrade (proxied through tunnel) -
 
     private async handleVisitorUpgrade(
         request: Request, tunnelWs: WebSocket, subdomain: string
@@ -146,7 +154,7 @@ export class TunnelDO extends DurableObject {
         return new Response(null, { status: 101, webSocket: client });
     }
 
-    // ── Hibernation handlers ─────────────────────────────────
+    // - Hibernation handlers ----------------
 
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
         const att = ws.deserializeAttachment() as WSAttachment | null;
@@ -263,7 +271,7 @@ export class TunnelDO extends DurableObject {
         try { ws.close(1011, "WebSocket error"); } catch { }
     }
 
-    // ── HTTP request proxy ───────────────────────────────────
+    // - HTTP request proxy -----------------
 
     private async proxyHTTPRequest(request: Request, ws: WebSocket): Promise<Response> {
         const reqId = crypto.randomUUID();

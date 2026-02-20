@@ -9,6 +9,7 @@ import { DiffTab } from './DiffTab';
 import { WSInspectorTab } from './WSInspectorTab';
 import { RunnerTab } from './RunnerTab';
 import { UpstreamsTab } from './UpstreamsTab';
+import { QRCode } from './QRCode';
 import { api } from '../lib/api';
 import type { ComposerState } from '../lib/types';
 
@@ -133,6 +134,7 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
               {tunnel.subdomain}.prod.bd ↗
             </a>
           </div>
+          <QRCode url={`https://${tunnel.subdomain}.prod.bd`} />
         </div>
         <div className="grid grid-cols-6 max-lg:grid-cols-3 gap-3">
           {([

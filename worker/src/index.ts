@@ -8,6 +8,7 @@ import { pluginMiddleware, runRegisterHooks, type RegisterResult } from "./plugi
 import "./middleware/ipfilter";
 import "./middleware/auth";
 import "./middleware/subdomain-block";
+import "./middleware/ratelimit";
 import { isSubdomainBlocked } from "./middleware/subdomain-block";
 
 export { TunnelDO };
