@@ -1,8 +1,7 @@
 {
-  "name": "prod-bd-web",
+  "name": "prod-bd-stats-dashboard",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",

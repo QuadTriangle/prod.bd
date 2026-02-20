@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -15,8 +16,10 @@ import (
 	"time"
 )
 
-//go:embed index.html
-var dashboardHTML embed.FS
+//go:generate sh -c "cd dashboard && pnpm install && pnpm run build"
+
+//go:embed dashboard/dist/*
+var dashboardFS embed.FS
 
 type tunnelJSON struct {
 	Subdomain     string  `json:"subdomain"`
@@ -87,10 +90,23 @@ func StartServer(store *Store, port int) (*Server, error) {
 	mux.HandleFunc("/api/stats/search", s.handleSearch)
 	mux.HandleFunc("/api/stats/curl/", s.handleCurl)
 	mux.HandleFunc("/api/stats/clear", s.handleClear)
+	// Serve built Astro static files from dashboard/dist
+	distFS, _ := fs.Sub(dashboardFS, "dashboard/dist")
+	fileServer := http.FileServer(http.FS(distFS))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		data, _ := dashboardHTML.ReadFile("index.html")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(data)
+		// Try to serve the file; fall back to index.html for SPA routing
+		path := r.URL.Path
+		if path == "/" {
+			path = "/index.html"
+		}
+		if _, err := fs.Stat(distFS, strings.TrimPrefix(path, "/")); err != nil {
+			// Serve index.html for any unmatched route
+			data, _ := fs.ReadFile(distFS, "index.html")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(data)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
 	})
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {

@@ -1,6 +1,7 @@
 packages:
   - worker
   - web
+  - cli/internal/plugins/stats/dashboard
 
 onlyBuiltDependencies:
   - esbuild

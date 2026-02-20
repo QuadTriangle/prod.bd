@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  /* Core palette */
+  --color-bg: #f8fafc;
+  --color-surface: rgba(255, 255, 255, 0.8);
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-muted: #64748b;
+  --color-dim: #cbd5e1;
+
+  /* Semantic */
+  --color-accent: #16a34a;
+  --color-danger: #dc2626;
+  --color-warning: #ca8a04;
+  --color-info: #2563eb;
+  --color-orange: #ea580c;
+  --color-purple: #7c3aed;
+
+  /* UI surfaces */
+  --color-header-bg: rgba(248, 250, 252, 0.9);
+  --color-input-bg: #e2e8f0;
+  --color-input-text: #334155;
+  --color-hover-bg: rgba(226, 232, 240, 0.4);
+  --color-td-border: rgba(226, 232, 240, 0.6);
+  --color-pre-bg: rgba(241, 245, 249, 0.9);
+  --color-port-bg: #e2e8f0;
+}
+
+[data-theme="dark"] {
+  --color-bg: #030712;
+  --color-surface: rgba(17, 24, 39, 0.5);
+  --color-border: #1f2937;
+  --color-text: #f9fafb;
+  --color-muted: #6b7280;
+  --color-dim: #374151;
+
+  --color-accent: #22c55e;
+  --color-danger: #ef4444;
+  --color-warning: #eab308;
+  --color-info: #3b82f6;
+  --color-orange: #f97316;
+  --color-purple: #a78bfa;
+
+  --color-header-bg: rgba(3, 7, 18, 0.8);
+  --color-input-bg: #1f2937;
+  --color-input-text: #d1d5db;
+  --color-hover-bg: rgba(31, 41, 55, 0.3);
+  --color-td-border: rgba(31, 41, 55, 0.5);
+  --color-pre-bg: rgba(17, 24, 39, 0.8);
+  --color-port-bg: #1f2937;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+}
+
+code, .mono {
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+}
+
+/* Table row hover using the exact original hover-bg color */
+tr.row-hover:hover td {
+  background-color: var(--color-hover-bg);
+}
+
+/* Table cell borders using the exact original td-border color */
+td.td-border {
+  border-bottom: 1px solid var(--color-td-border);
+}
