@@ -83,7 +83,8 @@ func StartTunnel(subdomain string, localPort int, workerBaseURL string, pipeline
 }
 
 func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *hooks.Pipeline, done <-chan struct{}) error {
-	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	dialer := websocket.Dialer{EnableCompression: true}
+	c, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		return err
 	}

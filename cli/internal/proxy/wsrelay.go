@@ -92,7 +92,8 @@ func (r *WSRelay) HandleOpen(msg types.WSOpen) {
 	}
 	reqHeader.Set("Host", parsed.Host)
 
-	localConn, _, err := websocket.DefaultDialer.Dial(localURL, reqHeader)
+	dialer := websocket.Dialer{EnableCompression: true}
+	localConn, _, err := dialer.Dial(localURL, reqHeader)
 	if err != nil {
 		log.Printf("WS open to %s failed for session %s: %v", upstream, msg.ID, err)
 		_ = r.writeJSON(types.WSClose{
