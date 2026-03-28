@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"maps"
@@ -32,17 +31,8 @@ func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelRespons
 	targetURL := upstream + req.Path
 
 	var body io.Reader
-	if req.Body != "" {
-		decoded, err := base64.StdEncoding.DecodeString(req.Body)
-		if err != nil {
-			return types.TunnelResponse{
-				Type:   types.TypeHTTPResponse,
-				ID:     req.ID,
-				Status: 502,
-				Body:   base64.StdEncoding.EncodeToString([]byte("Invalid Request Body")),
-			}
-		}
-		body = bytes.NewReader(decoded)
+	if len(req.Body) > 0 {
+		body = bytes.NewReader(req.Body)
 	}
 
 	httpReq, err := http.NewRequest(req.Method, targetURL, body)
@@ -51,7 +41,7 @@ func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelRespons
 			Type:   types.TypeHTTPResponse,
 			ID:     req.ID,
 			Status: 502,
-			Body:   base64.StdEncoding.EncodeToString([]byte("Failed to create request")),
+			Body:   []byte("Failed to create request"),
 		}
 	}
 
@@ -75,7 +65,7 @@ func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelRespons
 			Type:   types.TypeHTTPResponse,
 			ID:     req.ID,
 			Status: 502,
-			Body:   base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "Failed to connect to %s: %v", upstream, err)),
+			Body:   fmt.Appendf(nil, "Failed to connect to %s: %v", upstream, err),
 		}
 	}
 	defer resp.Body.Close()
@@ -97,6 +87,6 @@ func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelRespons
 		ID:      req.ID,
 		Status:  resp.StatusCode,
 		Headers: headers,
-		Body:    base64.StdEncoding.EncodeToString(respBody),
+		Body:    respBody,
 	}
 }

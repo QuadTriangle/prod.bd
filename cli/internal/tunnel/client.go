@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuadTriangle/prod.bd/cli/internal/binproto"
 	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
 	"github.com/QuadTriangle/prod.bd/cli/internal/proxy"
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
@@ -93,6 +94,14 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 	pipeline.NotifyConnect(subdomain, localPort)
 	log.Printf("Tunnel established for port %d", localPort)
 
+	// Detect dead connections: if no data or pong arrives within 60s, ReadMessage fails.
+	const pongWait = 60 * time.Second
+	c.SetReadDeadline(time.Now().Add(pongWait))
+	c.SetPongHandler(func(string) error {
+		c.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	// Close WebSocket when shutdown signal received
 	go func() {
 		<-done
@@ -103,18 +112,23 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 
 	// Thread-safe writer
 	var writeMutex sync.Mutex
+	writeBin := func(header any, body []byte) error {
+		frame, err := binproto.Encode(header, body)
+		if err != nil {
+			return err
+		}
+		writeMutex.Lock()
+		defer writeMutex.Unlock()
+		return c.WriteMessage(websocket.BinaryMessage, frame)
+	}
 	writeJSON := func(v any) error {
 		writeMutex.Lock()
 		defer writeMutex.Unlock()
 		return c.WriteJSON(v)
 	}
-	writeText := func(msg string) error {
-		writeMutex.Lock()
-		defer writeMutex.Unlock()
-		return c.WriteMessage(websocket.TextMessage, []byte(msg))
-	}
 
-	// Keepalive: ping every 30s to prevent idle disconnects
+	// Keepalive: send application-level ping every 30s (auto-responded by DO without waking it),
+	// plus a WebSocket-level ping to trigger PongHandler and reset the read deadline.
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -123,7 +137,13 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 			case <-done:
 				return
 			case <-ticker.C:
-				if err := writeText("ping"); err != nil {
+				writeMutex.Lock()
+				// Application-level ping for DO auto-response
+				_ = c.WriteMessage(websocket.TextMessage, []byte("ping"))
+				// Protocol-level ping to reset read deadline via PongHandler
+				err := c.WriteMessage(websocket.PingMessage, nil)
+				writeMutex.Unlock()
+				if err != nil {
 					log.Printf("Keepalive ping failed: %v", err)
 					return
 				}
@@ -134,34 +154,53 @@ func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *ho
 	defaultUpstream := proxy.DefaultTarget(localPort)
 
 	// WebSocket relay with dynamic upstream resolution
-	wsRelay := proxy.NewWSRelay(defaultUpstream, subdomain, writeJSON, func(msg types.WSOpen) string {
+	wsRelay := proxy.NewWSRelay(defaultUpstream, subdomain, writeBin, writeJSON, func(msg types.WSOpen) string {
 		return pipeline.ResolveWS(subdomain, msg)
 	}, pipeline)
 
 	// Main read loop
 	for {
-		_, message, err := c.ReadMessage()
+		msgType, message, err := c.ReadMessage()
 		if err != nil {
 			return err
 		}
 
-		if string(message) == "pong" {
+		// Any successful read proves the connection is alive
+		c.SetReadDeadline(time.Now().Add(pongWait))
+
+		if msgType == websocket.TextMessage && string(message) == "pong" {
 			continue
 		}
 
-		go handleMessage(message, defaultUpstream, subdomain, writeJSON, wsRelay, pipeline)
+		go handleMessage(msgType, message, defaultUpstream, subdomain, writeBin, writeJSON, wsRelay, pipeline)
 	}
 }
 
 // handleMessage routes an incoming tunnel message by its type field.
-func handleMessage(raw []byte, defaultUpstream string, subdomain string, writeJSON func(any) error, wsRelay *proxy.WSRelay, pipeline *hooks.Pipeline) {
-	// Peek at the type field to route without fully unmarshaling into the wrong struct
+func handleMessage(msgType int, raw []byte, defaultUpstream string, subdomain string, writeBin func(any, []byte) error, writeJSON func(any) error, wsRelay *proxy.WSRelay, pipeline *hooks.Pipeline) {
 	var envelope struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		log.Printf("Error unmarshaling message: %v", err)
-		return
+
+	var body []byte
+
+	if msgType == websocket.BinaryMessage {
+		hdr, b, err := binproto.Decode(raw)
+		if err != nil {
+			log.Printf("Error decoding binary frame: %v", err)
+			return
+		}
+		if err := json.Unmarshal(hdr, &envelope); err != nil {
+			log.Printf("Error unmarshaling header: %v", err)
+			return
+		}
+		body = b
+		raw = hdr
+	} else {
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			log.Printf("Error unmarshaling message: %v", err)
+			return
+		}
 	}
 
 	switch envelope.Type {
@@ -171,10 +210,10 @@ func handleMessage(raw []byte, defaultUpstream string, subdomain string, writeJS
 			log.Printf("Error unmarshaling HTTP request: %v", err)
 			return
 		}
+		req.Body = body
 		pipeline.NotifyRequest(subdomain)
 		req = pipeline.RunBeforeProxy(req)
 
-		// Resolve upstream: plugin hook wins, otherwise default localhost
 		upstream := pipeline.ResolveHTTP(subdomain, req)
 		if upstream == "" {
 			upstream = defaultUpstream
@@ -182,7 +221,7 @@ func handleMessage(raw []byte, defaultUpstream string, subdomain string, writeJS
 
 		resp := proxy.HandleRequest(req, upstream)
 		resp = pipeline.RunAfterProxy(req, resp)
-		if err := writeJSON(resp); err != nil {
+		if err := writeBin(resp, resp.Body); err != nil {
 			log.Printf("Error sending HTTP response: %v", err)
 		}
 
@@ -201,7 +240,8 @@ func handleMessage(raw []byte, defaultUpstream string, subdomain string, writeJS
 			log.Printf("Error unmarshaling ws-frame: %v", err)
 			return
 		}
-		pipeline.NotifyWSFrame(subdomain, msg.ID, "in", msg.IsText, msg.Payload, len(msg.Payload))
+		msg.Data = body
+		pipeline.NotifyWSFrame(subdomain, msg.ID, "in", msg.IsText, string(body), len(body))
 		wsRelay.HandleFrame(msg)
 
 	case types.TypeWSClose:

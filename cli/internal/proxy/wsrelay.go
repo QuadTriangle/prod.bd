@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -33,6 +32,7 @@ type UpstreamResolver func(msg types.WSOpen) string
 type WSRelay struct {
 	defaultUpstream string
 	subdomain       string
+	writeBin        func(header any, body []byte) error
 	writeJSON       func(v any) error
 	resolve         UpstreamResolver
 	pipeline        interface {
@@ -45,7 +45,7 @@ type WSRelay struct {
 	sessions map[string]*wsSession
 }
 
-func NewWSRelay(defaultUpstream string, subdomain string, writeJSON func(v any) error, resolve UpstreamResolver, pipeline interface {
+func NewWSRelay(defaultUpstream string, subdomain string, writeBin func(header any, body []byte) error, writeJSON func(v any) error, resolve UpstreamResolver, pipeline interface {
 	NotifyWSFrame(subdomain, sessionID, direction string, isText bool, payload string, size int)
 	NotifyWSSessionStart(subdomain, sessionID string, sender func(isText bool, payload []byte) error)
 	NotifyWSSessionEnd(subdomain, sessionID string)
@@ -53,6 +53,7 @@ func NewWSRelay(defaultUpstream string, subdomain string, writeJSON func(v any) 
 	return &WSRelay{
 		defaultUpstream: defaultUpstream,
 		subdomain:       subdomain,
+		writeBin:        writeBin,
 		writeJSON:       writeJSON,
 		resolve:         resolve,
 		pipeline:        pipeline,
@@ -151,20 +152,12 @@ func (r *WSRelay) readLoop(sessionID string, sess *wsSession) {
 			return
 		}
 
-		frame := types.WSFrame{Type: types.TypeWSFrame, ID: sessionID}
-		if msgType == websocket.TextMessage {
-			frame.IsText = true
-			frame.Payload = string(data)
-		} else {
-			frame.IsText = false
-			frame.Payload = base64.StdEncoding.EncodeToString(data)
-		}
-
-		if err := r.writeJSON(frame); err != nil {
+		frame := types.WSFrame{Type: types.TypeWSFrame, ID: sessionID, IsText: msgType == websocket.TextMessage}
+		if err := r.writeBin(frame, data); err != nil {
 			log.Printf("Error sending ws-frame for session %s: %v", sessionID, err)
 			return
 		}
-		r.pipeline.NotifyWSFrame(r.subdomain, sessionID, "out", frame.IsText, frame.Payload, len(frame.Payload))
+		r.pipeline.NotifyWSFrame(r.subdomain, sessionID, "out", frame.IsText, string(data), len(data))
 	}
 }
 
@@ -178,16 +171,11 @@ func (r *WSRelay) HandleFrame(msg types.WSFrame) {
 	}
 
 	if msg.IsText {
-		if err := sess.writeMessage(websocket.TextMessage, []byte(msg.Payload)); err != nil {
+		if err := sess.writeMessage(websocket.TextMessage, msg.Data); err != nil {
 			log.Printf("Error writing text frame to local WS: %v", err)
 		}
 	} else {
-		data, err := base64.StdEncoding.DecodeString(msg.Payload)
-		if err != nil {
-			log.Printf("Error decoding binary frame: %v", err)
-			return
-		}
-		if err := sess.writeMessage(websocket.BinaryMessage, data); err != nil {
+		if err := sess.writeMessage(websocket.BinaryMessage, msg.Data); err != nil {
 			log.Printf("Error writing binary frame to local WS: %v", err)
 		}
 	}

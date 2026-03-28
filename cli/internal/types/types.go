@@ -16,7 +16,7 @@ type TunnelRequest struct {
 	Method  string              `json:"method"`
 	Path    string              `json:"path"`
 	Headers map[string][]string `json:"headers"`
-	Body    string              `json:"body,omitempty"` // Base64 encoded
+	Body    []byte              `json:"-"` // Raw body bytes, sent via binary frame
 }
 
 // TunnelResponse is an HTTP response sent back through the tunnel.
@@ -25,7 +25,7 @@ type TunnelResponse struct {
 	ID      string              `json:"id"`
 	Status  int                 `json:"status"`
 	Headers map[string][]string `json:"headers"`
-	Body    string              `json:"body,omitempty"` // Base64 encoded
+	Body    []byte              `json:"-"` // Raw body bytes, sent via binary frame
 }
 
 type RegisterRequest struct {

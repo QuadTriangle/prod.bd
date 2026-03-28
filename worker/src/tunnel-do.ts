@@ -1,10 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import {
     TYPE_WS_OPEN, TYPE_WS_FRAME, TYPE_WS_CLOSE,
-    type WSFrameMessage, type WSCloseMessage,
-    collectHeaders, encodeBase64,
+    type WSFrameHeader, type WSCloseMessage,
+    collectHeaders,
     forwardVisitorFrame, deliverFrameToVisitor,
 } from "./ws-proxy";
+import { binEncode, binDecode } from "./binproto";
 import { errorPage } from "./error-page";
 import { RequestBuffer } from "./features/buffering";
 
@@ -18,7 +19,6 @@ interface TunnelRequest {
     method: string;
     path: string;
     headers: Record<string, string[]>;
-    body?: string;
 }
 
 interface TunnelResponse {
@@ -26,7 +26,6 @@ interface TunnelResponse {
     id: string;
     status: number;
     headers: Record<string, string[]>;
-    body?: string;
 }
 
 // --- WebSocket attachment types ---
@@ -47,7 +46,7 @@ export class TunnelDO extends DurableObject {
 
     private pendingRequests = new Map<
         string,
-        { subdomain: string; resolve: (resp: TunnelResponse) => void; reject: (err: Error) => void }
+        { subdomain: string; resolve: (resp: TunnelResponse, body: Uint8Array | null) => void; reject: (err: Error) => void }
     >();
 
     private buffer = new RequestBuffer();
@@ -169,22 +168,26 @@ export class TunnelDO extends DurableObject {
             return;
         }
 
-        // CLI tunnel → route by message type
-        if (typeof message !== "string") return;
+        // CLI tunnel → binary frames carry HTTP responses, text frames carry WS messages
         try {
-            const msg = JSON.parse(message);
-            this.handleTunnelMessage(msg);
+            if (message instanceof ArrayBuffer) {
+                const { header, body } = binDecode(message);
+                this.handleTunnelMessage(header, body);
+            } else {
+                const msg = JSON.parse(message);
+                this.handleTunnelMessage(msg, null);
+            }
         } catch (e) {
             console.error("Failed to parse tunnel message:", e);
         }
     }
 
-    private handleTunnelMessage(msg: any) {
+    private handleTunnelMessage(msg: any, body: Uint8Array | null) {
         switch (msg.type) {
             case TYPE_HTTP_RESPONSE: {
                 const pending = this.pendingRequests.get(msg.id);
                 if (pending) {
-                    pending.resolve(msg as TunnelResponse);
+                    pending.resolve(msg as TunnelResponse, body);
                     this.pendingRequests.delete(msg.id);
                 }
                 break;
@@ -192,7 +195,7 @@ export class TunnelDO extends DurableObject {
             case TYPE_WS_FRAME: {
                 const visitor = this.visitorSockets.get(msg.id);
                 if (visitor && visitor.readyState === WebSocket.OPEN) {
-                    deliverFrameToVisitor(msg as WSFrameMessage, visitor);
+                    deliverFrameToVisitor(msg as WSFrameHeader, body!, visitor);
                 }
                 break;
             }
@@ -286,8 +289,9 @@ export class TunnelDO extends DurableObject {
             headers: collectHeaders(request),
         };
 
+        let bodyBuf: ArrayBuffer | null = null;
         if (request.method !== "GET" && request.method !== "HEAD") {
-            tunnelReq.body = encodeBase64(await request.arrayBuffer());
+            bodyBuf = await request.arrayBuffer();
         }
 
         return new Promise<Response>((resolve) => {
@@ -298,14 +302,11 @@ export class TunnelDO extends DurableObject {
 
             this.pendingRequests.set(reqId, {
                 subdomain,
-                resolve: (resp) => {
+                resolve: (resp, body) => {
                     clearTimeout(timeout);
-                    const body = resp.body
-                        ? Uint8Array.from(atob(resp.body), (c) => c.charCodeAt(0))
-                        : null;
 
                     // Detect CLI proxy errors (agent reached, but service failed)
-                    if (resp.status === 502 && body) {
+                    if (resp.status === 502 && body && body.byteLength > 0) {
                         const text = new TextDecoder().decode(body);
                         if (text.startsWith("Failed to connect to")) {
                             resolve(errorPage(502, 2, text, subdomain));
@@ -322,7 +323,7 @@ export class TunnelDO extends DurableObject {
                         }
                     }
 
-                    resolve(new Response(body, { status: resp.status, headers: respHeaders }));
+                    resolve(new Response(body && body.byteLength > 0 ? body.buffer as ArrayBuffer : null, { status: resp.status, headers: respHeaders }));
                 },
                 reject: (err) => {
                     clearTimeout(timeout);
@@ -331,7 +332,7 @@ export class TunnelDO extends DurableObject {
             });
 
             try {
-                ws.send(JSON.stringify(tunnelReq));
+                ws.send(binEncode(tunnelReq, bodyBuf));
             } catch {
                 this.pendingRequests.delete(reqId);
                 clearTimeout(timeout);

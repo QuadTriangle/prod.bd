@@ -488,10 +488,8 @@ func (s *Server) handlePaused(w http.ResponseWriter, r *http.Request) {
 	out := make([]pausedJSON, 0, len(pausedMap))
 	for id, pr := range pausedMap {
 		body := ""
-		if pr.Request.Body != "" {
-			if decoded, err := base64.StdEncoding.DecodeString(pr.Request.Body); err == nil {
-				body = string(decoded)
-			}
+		if len(pr.Request.Body) > 0 {
+			body = string(pr.Request.Body)
 		}
 		out = append(out, pausedJSON{
 			ID: id, Method: pr.Request.Method, Path: pr.Request.Path,

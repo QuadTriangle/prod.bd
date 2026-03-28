@@ -9,11 +9,12 @@ type WSOpen struct {
 }
 
 // WSFrame carries a single WebSocket frame through the tunnel.
+// Payload is sent as raw bytes in the binary frame body, not in JSON.
 type WSFrame struct {
-	Type    string `json:"type"`
-	ID      string `json:"id"`
-	IsText  bool   `json:"isText"`
-	Payload string `json:"payload"` // Raw string for text, base64 for binary
+	Type   string `json:"type"`
+	ID     string `json:"id"`
+	IsText bool   `json:"isText"`
+	Data   []byte `json:"-"` // Raw payload bytes
 }
 
 // WSClose signals the other side to close a proxied WebSocket session.

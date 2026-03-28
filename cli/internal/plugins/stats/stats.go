@@ -673,47 +673,33 @@ func isBinaryContentType(headers map[string][]string) bool {
 
 func (s *Store) RecordRequest(subdomain, upstream string, req types.TunnelRequest, resp types.TunnelResponse, latency time.Duration) {
 	bytesIn := len(req.Body)
-	if req.Body != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(req.Body); err == nil {
-			bytesIn = len(decoded)
-		}
-	}
 	bytesOut := len(resp.Body)
-	if resp.Body != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(resp.Body); err == nil {
-			bytesOut = len(decoded)
-		}
-	}
 
 	var reqBody, respBody string
 	var truncated bool
 	binReq := isBinaryContentType(req.Headers)
 	binResp := isBinaryContentType(resp.Headers)
 
-	if req.Body != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(req.Body); err == nil {
-			if len(decoded) < 64_000 {
-				if binReq {
-					reqBody = req.Body
-				} else {
-					reqBody = string(decoded)
-				}
+	if len(req.Body) > 0 {
+		if len(req.Body) < 64_000 {
+			if binReq {
+				reqBody = base64.StdEncoding.EncodeToString(req.Body)
 			} else {
-				truncated = true
+				reqBody = string(req.Body)
 			}
+		} else {
+			truncated = true
 		}
 	}
-	if resp.Body != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(resp.Body); err == nil {
-			if len(decoded) < 64_000 {
-				if binResp {
-					respBody = resp.Body
-				} else {
-					respBody = string(decoded)
-				}
+	if len(resp.Body) > 0 {
+		if len(resp.Body) < 64_000 {
+			if binResp {
+				respBody = base64.StdEncoding.EncodeToString(resp.Body)
 			} else {
-				truncated = true
+				respBody = string(resp.Body)
 			}
+		} else {
+			truncated = true
 		}
 	}
 
@@ -1217,7 +1203,7 @@ func (h *interceptHook) BeforeProxy(req types.TunnelRequest) types.TunnelRequest
 					req.Headers = edits.Headers
 				}
 				if edits.Body != "" {
-					req.Body = base64.StdEncoding.EncodeToString([]byte(edits.Body))
+					req.Body = []byte(edits.Body)
 				}
 			}
 		case "modify-request":
@@ -1228,7 +1214,7 @@ func (h *interceptHook) BeforeProxy(req types.TunnelRequest) types.TunnelRequest
 				req.Headers[k] = []string{v}
 			}
 			if rule.SetBody != "" {
-				req.Body = base64.StdEncoding.EncodeToString([]byte(rule.SetBody))
+				req.Body = []byte(rule.SetBody)
 			}
 		}
 		// Inject latency on request side
@@ -1254,7 +1240,7 @@ func (h *interceptHook) AfterProxy(req types.TunnelRequest, resp types.TunnelRes
 				resp.Headers[k] = []string{v}
 			}
 			if rule.SetBody != "" {
-				resp.Body = base64.StdEncoding.EncodeToString([]byte(rule.SetBody))
+				resp.Body = []byte(rule.SetBody)
 			}
 		case "mock":
 			// Full mock: skip the real response entirely, replace with rule data
@@ -1269,7 +1255,7 @@ func (h *interceptHook) AfterProxy(req types.TunnelRequest, resp types.TunnelRes
 				resp.Headers[k] = []string{v}
 			}
 			if rule.SetBody != "" {
-				resp.Body = base64.StdEncoding.EncodeToString([]byte(rule.SetBody))
+				resp.Body = []byte(rule.SetBody)
 			}
 		}
 	}

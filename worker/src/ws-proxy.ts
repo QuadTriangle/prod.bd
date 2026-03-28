@@ -1,6 +1,8 @@
 // WebSocket visitor proxy — handles visitor WS connections relayed through the tunnel.
 // Isolated from the core HTTP tunnel logic in tunnel-do.ts.
 
+import { binEncode, binDecode } from "./binproto";
+
 export const TYPE_WS_OPEN = "ws-open";
 export const TYPE_WS_FRAME = "ws-frame";
 export const TYPE_WS_CLOSE = "ws-close";
@@ -12,11 +14,10 @@ export interface WSOpenMessage {
     headers: Record<string, string[]>;
 }
 
-export interface WSFrameMessage {
+export interface WSFrameHeader {
     type: typeof TYPE_WS_FRAME;
     id: string;
     isText: boolean;
-    payload: string;
 }
 
 export interface WSCloseMessage {
@@ -25,8 +26,6 @@ export interface WSCloseMessage {
     code?: number;
     reason?: string;
 }
-
-export type WSMessage = WSOpenMessage | WSFrameMessage | WSCloseMessage;
 
 /** Collect request headers into a multi-value map. */
 export function collectHeaders(request: Request): Record<string, string[]> {
@@ -41,38 +40,23 @@ export function collectHeaders(request: Request): Record<string, string[]> {
     return headers;
 }
 
-/** Encode an ArrayBuffer as base64 (chunked to avoid stack overflow). */
-export function encodeBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-    }
-    return btoa(binary);
-}
-
-/** Send a visitor's message as a ws-frame through the tunnel WebSocket. */
+/** Send a visitor's message as a binary ws-frame through the tunnel WebSocket. */
 export function forwardVisitorFrame(
     sessionId: string,
     message: string | ArrayBuffer,
     tunnelWs: WebSocket
 ): void {
     const isText = typeof message === "string";
-    const frame: WSFrameMessage = {
-        type: TYPE_WS_FRAME,
-        id: sessionId,
-        isText,
-        payload: isText ? (message as string) : encodeBase64(message as ArrayBuffer),
-    };
-    tunnelWs.send(JSON.stringify(frame));
+    const header: WSFrameHeader = { type: TYPE_WS_FRAME, id: sessionId, isText };
+    const payload = isText ? new TextEncoder().encode(message as string) : new Uint8Array(message as ArrayBuffer);
+    tunnelWs.send(binEncode(header, payload));
 }
 
 /** Deliver a ws-frame from the tunnel to a visitor WebSocket. */
-export function deliverFrameToVisitor(msg: WSFrameMessage, visitor: WebSocket): void {
-    if (msg.isText) {
-        visitor.send(msg.payload);
+export function deliverFrameToVisitor(header: WSFrameHeader, body: Uint8Array, visitor: WebSocket): void {
+    if (header.isText) {
+        visitor.send(new TextDecoder().decode(body));
     } else {
-        visitor.send(Uint8Array.from(atob(msg.payload), (c) => c.charCodeAt(0)));
+        visitor.send(body.buffer as ArrayBuffer);
     }
 }
