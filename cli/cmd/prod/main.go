@@ -33,6 +33,7 @@ func main() {
 	pipeline.RegisterPlugin(ttl.New())
 	pipeline.RegisterPlugin(hostheader.New())
 	pipeline.RegisterPlugin(cors.New())
+	pipeline.RegisterPlugin(hooks.NewQRCodePlugin())
 
 	// Let plugins register their flags, then parse
 	flag.Usage = func() {
