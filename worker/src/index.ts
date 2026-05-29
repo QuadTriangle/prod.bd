@@ -7,6 +7,7 @@ import { pluginMiddleware, runRegisterHooks, type RegisterResult } from "./plugi
 // Each plugin self-registers via registerMiddleware() / onRegister() at import time.
 import "./middleware/ipfilter";
 import "./middleware/auth";
+import "./middleware/cors";
 import "./middleware/subdomain-block";
 import "./middleware/ratelimit";
 import { isSubdomainBlocked } from "./middleware/subdomain-block";
