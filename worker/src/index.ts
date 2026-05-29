@@ -10,6 +10,7 @@ import "./middleware/auth";
 import "./middleware/cors";
 import "./middleware/subdomain-block";
 import "./middleware/ratelimit";
+import "./features/custom-subdomain";
 import { isSubdomainBlocked } from "./middleware/subdomain-block";
 
 export { TunnelDO };
@@ -75,7 +76,20 @@ app.post("/api/register", async (c) => {
         // Ensure client exists first (tunnels has FK to clients)
         await c.env.DB.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
 
-        // Check existing mapping
+        // Run register hooks first — plugins like custom-subdomain can pre-claim ports
+        const registerResult: RegisterResult = { tunnels: {}, extra: {} };
+        const parsedConfig = body.config ?? {};
+        await runRegisterHooks(
+            { clientId, ports, config: parsedConfig, db: c.env.DB },
+            registerResult,
+        );
+
+        // If a hook reported an error, bail early
+        if (registerResult.extra.subdomainError) {
+            return c.json({ error: registerResult.extra.subdomainError }, 400);
+        }
+
+        // Check existing mappings
         const { results: existing } = await c.env.DB.prepare(
             "SELECT port, subdomain FROM tunnels WHERE client_id = ?"
         ).bind(clientId).all<{ port: number; subdomain: string }>();
@@ -88,6 +102,12 @@ app.post("/api/register", async (c) => {
         }
 
         for (const port of ports) {
+            // Port already handled by a register hook (e.g. custom subdomain)
+            if (registerResult.tunnels[port]) {
+                results[port] = registerResult.tunnels[port];
+                continue;
+            }
+
             if (existingMap.has(port)) {
                 // Always update config — clears stale config when no plugins are active
                 await c.env.DB.prepare(
@@ -106,15 +126,7 @@ app.post("/api/register", async (c) => {
             results[port] = subdomain;
         }
 
-        // Run register hooks (plugins can add fields to response, modify config, etc.)
-        const registerResult: RegisterResult = { tunnels: results, extra: {} };
-        const parsedConfig = body.config ?? {};
-        await runRegisterHooks(
-            { clientId, ports, config: parsedConfig, db: c.env.DB },
-            registerResult,
-        );
-
-        return c.json({ tunnels: registerResult.tunnels, ...registerResult.extra });
+        return c.json({ tunnels: results, ...registerResult.extra });
     } catch (e) {
         console.error("Register failed:", e);
         return c.json({ error: String(e) }, 500);
