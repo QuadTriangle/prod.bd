@@ -59,6 +59,14 @@ func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelRespons
 	// Set Host to match the upstream target
 	httpReq.Host = httpReq.URL.Host
 
+	// Preserve original Host header from the tunnel request if present.
+	// Use --host-header flag to override.
+	if vals, ok := req.Headers["host"]; ok && len(vals) > 0 {
+		httpReq.Host = vals[0]
+	} else if vals, ok := req.Headers["Host"]; ok && len(vals) > 0 {
+		httpReq.Host = vals[0]
+	}
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return types.TunnelResponse{

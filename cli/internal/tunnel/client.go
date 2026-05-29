@@ -231,6 +231,10 @@ func handleMessage(msgType int, raw []byte, defaultUpstream string, subdomain st
 			log.Printf("Error unmarshaling ws-open: %v", err)
 			return
 		}
+		// Run BeforeProxy hooks to apply header overrides (e.g. --host-header)
+		synthetic := types.TunnelRequest{Headers: msg.Headers}
+		synthetic = pipeline.RunBeforeProxy(synthetic)
+		msg.Headers = synthetic.Headers
 		pipeline.NotifyWSFrame(subdomain, msg.ID, "in", true, "", 0)
 		wsRelay.HandleOpen(msg)
 

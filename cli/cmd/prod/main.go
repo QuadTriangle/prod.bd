@@ -13,6 +13,7 @@ import (
 	"github.com/QuadTriangle/prod.bd/cli/internal/config"
 	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/auth"
+	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/hostheader"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/ipallow"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/stats"
 	"github.com/QuadTriangle/prod.bd/cli/internal/plugins/ttl"
@@ -29,6 +30,7 @@ func main() {
 	pipeline.RegisterPlugin(ipallow.New())
 	pipeline.RegisterPlugin(auth.New())
 	pipeline.RegisterPlugin(ttl.New())
+	pipeline.RegisterPlugin(hostheader.New())
 
 	// Let plugins register their flags, then parse
 	flag.Usage = func() {
