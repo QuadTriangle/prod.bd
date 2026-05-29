@@ -17,9 +17,9 @@ declare namespace Cloudflare {
 		TUNNEL_DO: DurableObjectNamespace<import("./src/index").TunnelDO>;
 	}
 	interface Env {
-		DB?: D1Database;
-		BASE_DOMAIN?: "-staging.prod.bd" | ".prod.bd";
-		TUNNEL_DO?: DurableObjectNamespace<import("./src/index").TunnelDO>;
+		DB: D1Database;
+		BASE_DOMAIN: "-staging.prod.bd" | ".prod.bd";
+		TUNNEL_DO: DurableObjectNamespace<import("./src/index").TunnelDO>;
 	}
 }
 interface Env extends Cloudflare.Env {}

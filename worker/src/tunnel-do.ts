@@ -335,7 +335,7 @@ export class TunnelDO extends DurableObject {
                         }
                     }
 
-                    resolve(new Response(body && body.byteLength > 0 ? body.buffer as ArrayBuffer : null, { status: resp.status, headers: respHeaders }));
+                    resolve(new Response(body && body.byteLength > 0 ? body.slice().buffer : null, { status: resp.status, headers: respHeaders }));
                 },
                 reject: (err) => {
                     clearTimeout(timeout);
