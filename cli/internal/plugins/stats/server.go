@@ -126,9 +126,12 @@ func (s *Server) Broadcast(event string, data any) {
 	s.sseMu.Unlock()
 }
 
-func StartServer(store *Store, port int, authStr string) (*Server, error) {
+func StartServer(store *Store, port int, authStr string, workerURL string, baseDomain string) (*Server, error) {
 	mux := http.NewServeMux()
 	s := &Server{store: store, clients: make(map[*sseClient]struct{})}
+	mux.HandleFunc("/api/stats/account/config", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"base_domain": baseDomain})
+	})
 	mux.HandleFunc("/api/stats/tunnels", s.handleTunnels)
 	mux.HandleFunc("/api/stats/requests", s.handleRequests)
 	mux.HandleFunc("/api/stats/requests/", s.handleRequestByID)

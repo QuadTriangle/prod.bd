@@ -50,7 +50,7 @@ export function TimelineTab({ requests }: Props) {
                   <div
                     className={`absolute h-3 rounded-sm top-1 ${req.status >= 400 ? 'bg-danger/70' : req.status >= 300 ? 'bg-warning/70' : 'bg-accent/70'}`}
                     style={{ left: `${offset}%`, width: `${width}%`, minWidth: '2px' }}
-                    title={`${req.method} ${req.path} — ${req.status} — ${formatLatency(req.latency_ms)}`}
+                    title={`${req.method} ${req.path} - ${req.status} - ${formatLatency(req.latency_ms)}`}
                   />
                 </div>
                 <div className="w-[80px] shrink-0 text-right flex items-center justify-end gap-2">

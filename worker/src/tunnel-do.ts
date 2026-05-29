@@ -6,8 +6,9 @@ import {
     forwardVisitorFrame, deliverFrameToVisitor,
 } from "./ws-proxy";
 import { binEncode, binDecode } from "./binproto";
-import { errorPage } from "./error-page";
-import { RequestBuffer } from "./features/buffering";
+import { errorPage } from "./utils/error-page";
+import { extractSubdomain } from "./utils/subdomain";
+import { RequestBuffer } from "./modules/buffering";
 
 // --- HTTP tunnel protocol types ---
 const TYPE_HTTP_REQUEST = "http-request";
@@ -29,7 +30,7 @@ interface TunnelResponse {
 }
 
 // --- WebSocket attachment types ---
-interface TunnelAttachment { subdomain: string }
+interface TunnelAttachment { subdomain: string; cliVersion?: string }
 interface VisitorAttachment { visitorSessionId: string; subdomain: string }
 type WSAttachment = TunnelAttachment | VisitorAttachment;
 
@@ -82,10 +83,20 @@ export class TunnelDO extends DurableObject {
             return this.handleTunnelUpgrade(request);
         }
 
-        const subdomain = url.hostname.split(".")[0];
+        const subdomain = extractSubdomain(url.hostname, this.env.BASE_DOMAIN);
         const tunnelWs = this.getTunnelSocket(subdomain);
         if (!tunnelWs || tunnelWs.readyState !== WebSocket.OPEN) {
-            return this.buffer.enqueue(request);
+            // TODO: enable buffer
+            // return this.buffer.enqueue(request);
+            return errorPage(502, 1, "Tunnel agent is not connected. Start the CLI to establish a tunnel.", subdomain, this.env.BASE_DOMAIN);
+        }
+
+        // Block traffic to tunnels from old CLI versions
+        const att = tunnelWs.deserializeAttachment() as TunnelAttachment | null;
+        if (!att?.cliVersion) {
+            return errorPage(426, 0,
+                "This tunnel is running an outdated CLI. The tunnel owner must upgrade prod.bd CLI to latest version: curl -fsSL https://prod.bd/install | bash",
+                subdomain, this.env.BASE_DOMAIN);
         }
 
         // Visitor WebSocket upgrade
@@ -116,7 +127,8 @@ export class TunnelDO extends DurableObject {
         }
 
         this.ctx.acceptWebSocket(server);
-        server.serializeAttachment({ subdomain } as TunnelAttachment);
+        const cliVersion = request.headers.get("X-Prod-Version") || undefined;
+        server.serializeAttachment({ subdomain, cliVersion } as TunnelAttachment);
         this.tunnels.set(subdomain, server);
 
         // Drain buffered requests
@@ -203,7 +215,7 @@ export class TunnelDO extends DurableObject {
                 const visitor = this.visitorSockets.get(msg.id);
                 if (visitor) {
                     const cm = msg as WSCloseMessage;
-                    try { visitor.close(cm.code || 1000, cm.reason || ""); } catch { }
+                    try { visitor.close(cm.code || 1000, cm.reason); } catch { }
                     this.visitorSockets.delete(msg.id);
                 }
                 break;
@@ -279,7 +291,7 @@ export class TunnelDO extends DurableObject {
     private async proxyHTTPRequest(request: Request, ws: WebSocket): Promise<Response> {
         const reqId = crypto.randomUUID();
         const url = new URL(request.url);
-        const subdomain = url.hostname.split(".")[0];
+        const subdomain = extractSubdomain(url.hostname, this.env.BASE_DOMAIN);
 
         const tunnelReq: TunnelRequest = {
             type: TYPE_HTTP_REQUEST,
@@ -297,7 +309,7 @@ export class TunnelDO extends DurableObject {
         return new Promise<Response>((resolve) => {
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(reqId);
-                resolve(errorPage(504, 2, "Agent did not respond within 30 seconds. Your service may be overloaded or unresponsive.", subdomain));
+                resolve(errorPage(504, 2, "Agent did not respond within 30 seconds. Your service may be overloaded or unresponsive.", subdomain, this.env.BASE_DOMAIN));
             }, 30000);
 
             this.pendingRequests.set(reqId, {
@@ -309,7 +321,7 @@ export class TunnelDO extends DurableObject {
                     if (resp.status === 502 && body && body.byteLength > 0) {
                         const text = new TextDecoder().decode(body);
                         if (text.startsWith("Failed to connect to")) {
-                            resolve(errorPage(502, 2, text, subdomain));
+                            resolve(errorPage(502, 2, text, subdomain, this.env.BASE_DOMAIN));
                             return;
                         }
                     }
@@ -327,7 +339,7 @@ export class TunnelDO extends DurableObject {
                 },
                 reject: (err) => {
                     clearTimeout(timeout);
-                    resolve(errorPage(502, 1, "Tunnel connection lost: " + err.message, subdomain));
+                    resolve(errorPage(502, 1, "Tunnel connection lost: " + err.message, subdomain, this.env.BASE_DOMAIN));
                 },
             });
 
@@ -336,7 +348,7 @@ export class TunnelDO extends DurableObject {
             } catch {
                 this.pendingRequests.delete(reqId);
                 clearTimeout(timeout);
-                resolve(errorPage(502, 1, "Tunnel agent disconnected while sending request.", subdomain));
+                resolve(errorPage(502, 1, "Tunnel agent disconnected while sending request.", subdomain, this.env.BASE_DOMAIN));
             }
         });
     }

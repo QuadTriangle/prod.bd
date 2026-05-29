@@ -2,7 +2,7 @@
 // Returns 403 if the visitor IP is not in the allowlist.
 // Supports IPv4, IPv6, and CIDR notation for both.
 
-import { registerMiddleware } from "../plugins";
+import { registerMiddleware } from "./plugins";
 
 /** Parse an IPv4 address into a 4-byte Uint8Array, or null. */
 function parseIPv4(ip: string): Uint8Array | null {
@@ -97,7 +97,7 @@ function ipMatchesEntry(ip: string, entry: string): boolean {
     const slash = entry.indexOf("/");
 
     if (slash === -1) {
-        // Exact match — compare parsed bytes so "::1" matches "0:0:0:0:0:0:0:1"
+        // Exact match - compare parsed bytes so "::1" matches "0:0:0:0:0:0:0:1"
         const a = parseIP(ip);
         const b = parseIP(entry);
         if (!a || !b || a.length !== b.length) return false;
@@ -123,7 +123,7 @@ registerMiddleware(async (c, next) => {
     const config = c.get("tunnelConfig") as Record<string, unknown> | undefined;
     const allowIps = config?.allowIps;
 
-    // Not configured — pass through
+    // Not configured - pass through
     if (!Array.isArray(allowIps) || allowIps.length === 0) {
         return next();
     }

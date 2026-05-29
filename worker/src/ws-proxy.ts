@@ -1,4 +1,4 @@
-// WebSocket visitor proxy — handles visitor WS connections relayed through the tunnel.
+// WebSocket visitor proxy - handles visitor WS connections relayed through the tunnel.
 // Isolated from the core HTTP tunnel logic in tunnel-do.ts.
 
 import { binEncode, binDecode } from "./binproto";

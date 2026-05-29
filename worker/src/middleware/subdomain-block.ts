@@ -2,7 +2,8 @@
 // Blocks requests to subdomains containing offensive or inappropriate words.
 // Also exports the check so allocateSubdomain() can reject them at creation time.
 
-import { registerMiddleware } from "../plugins";
+import { registerMiddleware } from "./plugins";
+import { extractSubdomain } from "../utils/subdomain";
 
 // Offensive words and common leet-speak variants
 const BLOCKED_PATTERNS: string[] = [
@@ -48,7 +49,7 @@ export function isSubdomainBlocked(subdomain: string): boolean {
 // Middleware: block visitor requests to offensive subdomains
 registerMiddleware(async (c, next) => {
     const url = new URL(c.req.url);
-    const subdomain = url.hostname.split(".")[0];
+    const subdomain = extractSubdomain(url.hostname, c.env.BASE_DOMAIN);
 
     if (isSubdomainBlocked(subdomain)) {
         return c.text("Subdomain not allowed", 403);

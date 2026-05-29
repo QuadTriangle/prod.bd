@@ -989,6 +989,8 @@ func extractJSONPath(body, path string) string {
 type Plugin struct {
 	dashboardPort int
 	dashboardAuth string
+	workerURL     string
+	baseDomain    string
 	store         *Store
 	server        *Server
 }
@@ -1039,11 +1041,16 @@ func (p *Plugin) broadcast(event string, data any) {
 	}
 }
 
+func (p *Plugin) SetAccountConfig(workerURL, baseDomain string) {
+	p.workerURL = workerURL
+	p.baseDomain = baseDomain
+}
+
 func (p *Plugin) startDashboard() {
 	if p.dashboardPort == 0 || p.server != nil {
 		return
 	}
-	srv, err := StartServer(p.store, p.dashboardPort, p.dashboardAuth)
+	srv, err := StartServer(p.store, p.dashboardPort, p.dashboardAuth, p.workerURL, p.baseDomain)
 	if err != nil {
 		log.Printf("[stats] failed to start dashboard server: %v", err)
 		return

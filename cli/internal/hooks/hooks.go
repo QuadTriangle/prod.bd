@@ -60,7 +60,7 @@ func (NoOpConnectionHook) OnRequest(_ string)             {}
 type Plugin interface {
 	// Name returns a short identifier (e.g. "inspector", "auth").
 	Name() string
-	// RegisterFlags is called before flag.Parse() — add your flags here.
+	// RegisterFlags is called before flag.Parse() - add your flags here.
 	RegisterFlags(fs *flag.FlagSet)
 	// Enabled returns true if the plugin should activate (check your flags).
 	Enabled() bool

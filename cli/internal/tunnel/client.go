@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuadTriangle/prod.bd/cli/internal/binproto"
+	"github.com/QuadTriangle/prod.bd/cli/internal/config"
 	"github.com/QuadTriangle/prod.bd/cli/internal/hooks"
 	"github.com/QuadTriangle/prod.bd/cli/internal/proxy"
 	"github.com/QuadTriangle/prod.bd/cli/internal/types"
@@ -30,13 +31,24 @@ func Register(clientID string, ports []int, workerBaseURL string, workerConfig m
 		return nil, err
 	}
 
-	resp, err := http.Post(workerBaseURL+"/api/register", "application/json", bytes.NewBuffer(data))
+	req, err := http.NewRequest("POST", workerBaseURL+"/api/register", bytes.NewBuffer(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Prod-Version", config.Version)
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		var errResp struct{ Error string `json:"error"` }
+		if json.NewDecoder(resp.Body).Decode(&errResp) == nil && errResp.Error != "" {
+			return nil, fmt.Errorf("%s", errResp.Error)
+		}
 		return nil, fmt.Errorf("server returned status: %d", resp.StatusCode)
 	}
 
@@ -85,7 +97,7 @@ func StartTunnel(subdomain string, localPort int, workerBaseURL string, pipeline
 
 func connectAndServe(wsURL string, localPort int, subdomain string, pipeline *hooks.Pipeline, done <-chan struct{}) error {
 	dialer := websocket.Dialer{EnableCompression: true}
-	c, _, err := dialer.Dial(wsURL, nil)
+	c, _, err := dialer.Dial(wsURL, http.Header{"X-Prod-Version": {config.Version}})
 	if err != nil {
 		return err
 	}

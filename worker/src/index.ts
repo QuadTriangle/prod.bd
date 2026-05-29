@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { TunnelDO } from "./tunnel-do";
 import { tunnelConfig, invalidateConfigCache } from "./middleware/tunnel-config";
-import { pluginMiddleware, runRegisterHooks, type RegisterResult } from "./plugins";
+import { pluginMiddleware, runRegisterHooks, type RegisterResult } from "./middleware/plugins";
 
 // --- Import feature plugins here ---
 // Each plugin self-registers via registerMiddleware() / onRegister() at import time.
@@ -10,12 +10,29 @@ import "./middleware/auth";
 import "./middleware/cors";
 import "./middleware/subdomain-block";
 import "./middleware/ratelimit";
-import "./features/custom-subdomain";
+import "./modules/custom-subdomain";
 import { isSubdomainBlocked } from "./middleware/subdomain-block";
+import { extractSubdomain } from "./utils/subdomain";
+import { isVersionOk } from "./utils/version";
 
 export { TunnelDO };
 
 const app = new Hono<{ Bindings: Env }>();
+
+// CORS for API routes (dashboard runs on localhost)
+app.on("OPTIONS", "/api/*", (c) => {
+    const origin = c.req.header("Origin") || "*";
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    c.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    return c.body(null, 204);
+});
+app.use("/api/*", async (c, next) => {
+    const origin = c.req.header("Origin") || "*";
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    await next();
+});
 
 // Generate a random subdomain
 function generateSubdomain(length: number): string {
@@ -36,10 +53,7 @@ async function allocateSubdomain(db: D1Database, clientId: string, port: number,
         const subdomain = generateSubdomain(subdomainLength);
 
         // Skip offensive subdomains
-        if (isSubdomainBlocked(subdomain)) {
-            retries++;
-            continue;
-        }
+        if (isSubdomainBlocked(subdomain)) { retries++; continue; }
 
         const existing = await db.prepare(
             "SELECT 1 FROM tunnels WHERE subdomain = ?"
@@ -53,16 +67,24 @@ async function allocateSubdomain(db: D1Database, clientId: string, port: number,
         }
 
         retries++;
-        if (retries >= 4) {
-            subdomainLength++;
-        }
+        if (retries >= 4) subdomainLength++;
     }
 
     return null;
 }
 
+// Ensure client_id exists (tunnels has FK to clients).
+async function ensureClient(db: D1Database, clientId: string): Promise<void> {
+    await db.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
+}
+
 app.post("/api/register", async (c) => {
     try {
+        const version = c.req.header("X-Prod-Version");
+        if (version && !isVersionOk(version)) {
+            return c.json({ error: "outdated CLI. Please upgrade prod.bd CLI to latest version: curl -fsSL https://prod.bd/install | bash" }, 426);
+        }
+
         const body = await c.req.json<{ clientId: string; ports: number[]; config?: Record<string, unknown> }>();
         const { clientId, ports } = body;
         const configStr = body.config ? JSON.stringify(body.config) : "{}";
@@ -72,9 +94,7 @@ app.post("/api/register", async (c) => {
         }
 
         const results: Record<number, string> = {};
-
-        // Ensure client exists first (tunnels has FK to clients)
-        await c.env.DB.prepare("INSERT OR IGNORE INTO clients (id) VALUES (?)").bind(clientId).run();
+        await ensureClient(c.env.DB, clientId);
 
         // Run register hooks first — plugins like custom-subdomain can pre-claim ports
         const registerResult: RegisterResult = { tunnels: {}, extra: {} };
@@ -109,7 +129,7 @@ app.post("/api/register", async (c) => {
             }
 
             if (existingMap.has(port)) {
-                // Always update config — clears stale config when no plugins are active
+                // Always update config - clears stale config when no plugins are active
                 await c.env.DB.prepare(
                     "UPDATE tunnels SET config = ? WHERE client_id = ? AND port = ?"
                 ).bind(configStr, clientId, port).run();
@@ -122,7 +142,6 @@ app.post("/api/register", async (c) => {
             if (!subdomain) {
                 return c.json({ error: "Failed to allocate subdomain" }, 500);
             }
-
             results[port] = subdomain;
         }
 
@@ -140,9 +159,7 @@ app.get("/_tunnel", async (c) => {
     }
 
     const subdomain = c.req.query("subdomain");
-    if (!subdomain) {
-        return c.text("Missing subdomain", 400);
-    }
+    if (!subdomain) return c.text("Missing subdomain", 400);
 
     // Single global DO for all tunnels
     const id = c.env.TUNNEL_DO.idFromName("temp_global_tunnel");
@@ -155,11 +172,7 @@ app.get("/_tunnel", async (c) => {
 // tunnelConfig() loads config, pluginMiddleware() runs all registered feature middleware.
 app.all("*", tunnelConfig(), pluginMiddleware(), async (c) => {
     const url = new URL(c.req.url);
-    const hostname = url.hostname;
-
-
-    // assuming the very first part of the hostname is the subdomain.
-    const subdomain = hostname.split(".")[0];
+    const subdomain = extractSubdomain(url.hostname, c.env.BASE_DOMAIN);
 
     if (subdomain === "www" || subdomain === "tunnel" || !subdomain) {
         return c.text("Not Found", 404);

@@ -1,4 +1,4 @@
-// Worker plugin system — middleware registry + register hooks.
+// Worker plugin system - middleware registry + register hooks.
 // Adding a feature = create a middleware file + register it here.
 // No edits to index.ts or tunnel-do.ts needed.
 

@@ -2,7 +2,7 @@
 // Reads config.cors (comma-separated origins or "*") and adds CORS headers.
 // Handles preflight OPTIONS requests without forwarding to the CLI.
 
-import { registerMiddleware } from "../plugins";
+import { registerMiddleware } from "./plugins";
 
 registerMiddleware(async (c, next) => {
     const config = c.get("tunnelConfig") as Record<string, unknown> | undefined;

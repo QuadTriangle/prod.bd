@@ -18,13 +18,14 @@ interface Props {
   requests: RequestEntry[];
   onRefresh: () => void;
   showToast: (msg: string) => void;
+  baseDomain: string;
 }
 
 const tabNames = ['Requests', 'Timeline', 'Composer', 'Runner', 'Intercepts', 'Upstreams', 'Diff', 'WebSocket'] as const;
 
 const emptyKV = (): KVPair => ({ key: '', value: '', enabled: true });
 
-export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) {
+export function TunnelDetail({ tunnel, requests, onRefresh, showToast, baseDomain }: Props) {
   const [tab, setTab] = useState<(typeof tabNames)[number]>('Requests');
   const [composerInit, setComposerInit] = useState<ComposerState | null>(null);
   const [diffPair, setDiffPair] = useState<[RequestEntry, RequestEntry] | null>(null);
@@ -126,15 +127,15 @@ export function TunnelDetail({ tunnel, requests, onRefresh, showToast }: Props) 
               <span className="text-[.7rem] bg-port-bg text-muted px-1.5 py-0.5 rounded">:{tunnel.port}</span>
             </div>
             <a
-              href={`https://${tunnel.subdomain}.prod.bd`}
+              href={`https://${tunnel.subdomain}${baseDomain}`}
               target="_blank"
               rel="noopener"
               className="text-accent no-underline mono text-sm hover:text-accent/80"
             >
-              {tunnel.subdomain}.prod.bd ↗
+              {tunnel.subdomain}{baseDomain} ↗
             </a>
           </div>
-          <QRCode url={`https://${tunnel.subdomain}.prod.bd`} />
+          <QRCode url={`https://${tunnel.subdomain}${baseDomain}`} />
         </div>
         <div className="grid grid-cols-6 max-lg:grid-cols-3 gap-3">
           {([

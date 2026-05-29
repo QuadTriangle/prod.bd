@@ -3,23 +3,31 @@ const year = new Date().getFullYear();
 ---
 
 <footer class="bg-gray-900 text-gray-400 py-12">
-  <div class="max-w-6xl mx-auto px-6 text-center">
-    <div class="flex gap-6 justify-center">
-      <a
-        href="https://github.com/quadtriangle/prod.bd"
-        class="hover:text-white transition"
-        target="_blank"
-      >
-        GitHub
-      </a>
-      <a
-        href="https://github.com/quadtriangle/prod.bd/releases"
-        class="hover:text-white transition"
-        target="_blank"
-      >
-        Releases
-      </a>
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-8 mb-10">
+      <div>
+        <h4 class="text-white font-semibold mb-3 text-sm uppercase tracking-wider">Product</h4>
+        <ul class="space-y-2 text-sm">
+          <li><a href="https://github.com/quadtriangle/prod.bd/releases" class="hover:text-white transition" target="_blank" rel="noopener">Releases</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="text-white font-semibold mb-3 text-sm uppercase tracking-wider">Resources</h4>
+        <ul class="space-y-2 text-sm">
+          <li><a href="https://github.com/quadtriangle/prod.bd" class="hover:text-white transition" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="mailto:support@prod.bd" class="hover:text-white transition">Support</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="text-white font-semibold mb-3 text-sm uppercase tracking-wider">Legal</h4>
+        <ul class="space-y-2 text-sm">
+          <li><a href="/terms" class="hover:text-white transition">Terms of Service</a></li>
+          <li><a href="/privacy" class="hover:text-white transition">Privacy Policy</a></li>
+        </ul>
+      </div>
     </div>
-    <p class="mt-6 text-sm">Copyright © {year} prod.bd. All rights reserved</p>
+    <div class="border-t border-gray-800 pt-6 text-center text-sm">
+      <p>© {year} prod.bd. All rights reserved.</p>
+    </div>
   </div>
 </footer>

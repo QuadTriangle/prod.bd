@@ -74,7 +74,7 @@ export function DiffTab({ requests, initialPair, onConsume }: Props) {
   const selectCls = "bg-input-bg border border-dim rounded-lg px-3 py-1.5 text-xs text-input-text outline-none focus:border-accent";
 
   const ReqLabel = ({ req }: { req?: RequestEntry }) => {
-    if (!req) return <span className="text-dim">—</span>;
+    if (!req) return <span className="text-dim">-</span>;
     return (
       <span className="flex items-center gap-1.5">
         <span className={`px-1 py-0.5 rounded text-[.6rem] mono font-bold ${methodColor(req.method)}`}>{req.method}</span>

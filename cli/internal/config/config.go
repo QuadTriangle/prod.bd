@@ -9,13 +9,20 @@ import (
 	"strings"
 )
 
-const DefaultWorkerURL = "https://tunnel.prod.bd"
+const DefaultBaseDomain = ".prod.bd"
 
-func GetWorkerURL() string {
-	if v := os.Getenv("WORKER_URL"); v != "" {
+// Version is set at build time via -ldflags.
+var Version = "0.0.0-dev"
+
+func GetBaseDomain() string {
+	if v := os.Getenv("BASE_DOMAIN"); v != "" {
 		return v
 	}
-	return DefaultWorkerURL
+	return DefaultBaseDomain
+}
+
+func GetWorkerURL() string {
+	return "https://tunnel" + GetBaseDomain()
 }
 
 func GetClientID() (string, error) {

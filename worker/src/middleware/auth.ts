@@ -2,7 +2,7 @@
 // Reads config.auth ("user:pass") and validates the Authorization header.
 // Returns 401 with WWW-Authenticate challenge if missing or invalid.
 
-import { registerMiddleware } from "../plugins";
+import { registerMiddleware } from "./plugins";
 
 registerMiddleware(async (c, next) => {
     const config = c.get("tunnelConfig") as Record<string, unknown> | undefined;

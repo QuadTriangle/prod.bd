@@ -11,8 +11,10 @@ export function errorPage(
     failedAt: number,
     detail: string,
     subdomain: string,
+    baseDomain: string,
 ): Response {
-    const nodes = ["Internet", "prod.bd Worker", "prod.bd Agent", "Your Service"];
+    const tunnelHost = subdomain + baseDomain;
+    const nodes = ["Internet", `tunnel${baseDomain} Worker`, `tunnel${baseDomain} Agent`, "Your Service"];
 
     const stepsHtml = nodes.map((label, i) => {
         const ok = i <= failedAt;
@@ -27,7 +29,7 @@ export function errorPage(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${status} — ${subdomain}.prod.bd</title>
+<title>${status} - ${tunnelHost}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e5e5e5}
@@ -40,10 +42,10 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;fon
 .arrow{font-size:1.2rem;font-weight:700}
 .arrow.ok{color:#4ade80}
 .arrow.fail{color:#f87171}
-.arrow.dim{color:#333}
-.detail{color:#888;font-size:.85rem;margin-top:1rem;font-family:ui-monospace,monospace;background:#0a0a0a;padding:.75rem 1rem;border-radius:8px;border:1px solid #1a1a1a;word-break:break-all}
-.sub{color:#555;font-size:.75rem;margin-top:1.5rem}
-.sub a{color:#666;text-decoration:none}
+.arrow.dim{color:#faa}
+.detail{color:#eee;font-size:.85rem;margin-top:1rem;font-family:ui-monospace,monospace;background:#0a0a0a;padding:.75rem 1rem;border-radius:8px;border:1px solid #1a1a1a;word-break:break-all}
+.sub{color:#aaa;font-size:.75rem;margin-top:1.5rem}
+.sub a{color:#aaa;text-decoration:none}
 </style>
 </head>
 <body>
@@ -51,7 +53,7 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;fon
   <div class="status">${status}</div>
   <div class="chain">${stepsHtml}</div>
   <div class="detail">${esc(detail)}</div>
-  <div class="sub">${subdomain}.prod.bd &middot; <a href="https://prod.bd">powered by prod.bd</a></div>
+  <div class="sub">${tunnelHost} &middot; <a target="_blank" href="https://prod.bd">powered by prod.bd</a></div>
 </div>
 </body>
 </html>`;

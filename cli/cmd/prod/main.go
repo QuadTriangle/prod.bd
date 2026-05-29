@@ -27,7 +27,8 @@ func main() {
 	// --- Register plugins ---
 	// Each plugin owns its own flags and config.
 	// To add a new feature, just add a line here:
-	pipeline.RegisterPlugin(stats.New())
+	statsPlugin := stats.New()
+	pipeline.RegisterPlugin(statsPlugin)
 	pipeline.RegisterPlugin(ipallow.New())
 	pipeline.RegisterPlugin(auth.New())
 	pipeline.RegisterPlugin(ttl.New())
@@ -76,15 +77,17 @@ func main() {
 
 	// 2. Register Ports (with merged plugin config)
 	log.Println("Registering ports...")
+	statsPlugin.SetAccountConfig(workerURL, config.GetBaseDomain())
 	mapping, err := tunnel.Register(clientID, ports, workerURL, pipeline.WorkerConfig())
 	if err != nil {
 		log.Fatalf("Failed to register ports: %v", err)
 	}
 
 	// 3. Print Mappings
+	baseDomain := config.GetBaseDomain()
 	fmt.Println("\n--- Tunnel Mappings ---")
 	for port, sub := range mapping {
-		fmt.Printf("http://localhost:%d  ->  https://%s.prod.bd\n", port, sub)
+		fmt.Printf("http://localhost:%d  ->  https://%s%s\n", port, sub, baseDomain)
 	}
 	fmt.Println("-----------------------")
 

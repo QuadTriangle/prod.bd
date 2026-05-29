@@ -5,7 +5,7 @@
 //   { subdomain: "myapp" }           — single name for all ports (or first port)
 //   { subdomains: { "3000": "api", "5173": "web" } } — per-port mapping
 
-import { onRegister } from "../plugins";
+import { onRegister } from "../middleware/plugins";
 
 const RESERVED = new Set(["www", "tunnel", "api", "admin", "app"]);
 const SUBDOMAIN_RE = /^[a-z][a-z0-9-]{1,30}[a-z0-9]$/;

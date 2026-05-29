@@ -1,6 +1,6 @@
 package types
 
-// Wire-level type discriminator — present on all tunnel messages
+// Wire-level type discriminator - present on all tunnel messages
 const (
 	TypeHTTPRequest  = "http-request"
 	TypeHTTPResponse = "http-response"

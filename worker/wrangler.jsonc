@@ -6,16 +6,7 @@
     "compatibility_flags": [
         "nodejs_compat"
     ],
-    // Durable Object for managing Tunnel connections
-    "durable_objects": {
-        "bindings": [
-            {
-                "name": "TUNNEL_DO",
-                "class_name": "TunnelDO"
-            }
-        ]
-    },
-    // Migrations for Durable Objects
+    // Migrations for Durable Objects (shared by all envs)
     "migrations": [
         {
             "tag": "v1",
@@ -24,27 +15,81 @@
             ]
         }
     ],
-    // D1 Database for storing client ID <-> subdomains
-    "d1_databases": [
-        {
-            "binding": "DB",
-            "database_name": "prod-bd-db",
-            "database_id": "8049c119-cb6a-4b94-9add-e4b566113824"
-        }
-    ],
     // Observability
     "observability": {
         "enabled": true
     },
-    "routes": [
-        {
-            "pattern": "tunnel.prod.bd",
-            "custom_domain": true,
-            "zone_name": "prod.bd"
+    // --- Environments ---
+    // Deploy: wrangler deploy --env staging | --env production
+    // Dev:    wrangler dev --env staging
+    //
+    // BASE_DOMAIN convention:
+    //   Production: ".prod.bd"       → tunnel.prod.bd, abc.prod.bd
+    //   Staging:    "-staging.prod.bd" → tunnel-staging.prod.bd, abc-staging.prod.bd
+    "env": {
+        "staging": {
+            "name": "prod-bd-worker-staging",
+            "durable_objects": {
+                "bindings": [
+                    {
+                        "name": "TUNNEL_DO",
+                        "class_name": "TunnelDO"
+                    }
+                ]
+            },
+            "d1_databases": [
+                {
+                    "binding": "DB",
+                    "database_name": "prod-bd-db-staging",
+                    "database_id": "fba37c70-5acf-4abc-ac60-f2ca8425edcf"
+                }
+            ],
+            "vars": {
+                "BASE_DOMAIN": "-staging.prod.bd"
+            },
+            "routes": [
+                {
+                    "pattern": "tunnel-staging.prod.bd",
+                    "custom_domain": true,
+                    "zone_name": "prod.bd"
+                },
+                {
+                    "pattern": "*-staging.prod.bd/*",
+                    "zone_name": "prod.bd"
+                }
+            ]
         },
-        {
-            "pattern": "*.prod.bd/*",
-            "zone_name": "prod.bd"
+        "production": {
+            "name": "prod-bd-worker",
+            "durable_objects": {
+                "bindings": [
+                    {
+                        "name": "TUNNEL_DO",
+                        "class_name": "TunnelDO"
+                    }
+                ]
+            },
+            "d1_databases": [
+                {
+                    "binding": "DB",
+                    "database_name": "prod-bd-db",
+                    "database_id": "8049c119-cb6a-4b94-9add-e4b566113824"
+                }
+            ],
+            "vars": {
+                "BASE_DOMAIN": ".prod.bd"
+            },
+            "routes": [
+                {
+                    "pattern": "tunnel.prod.bd",
+                    "custom_domain": true,
+                    "zone_name": "prod.bd"
+                },
+                {
+                    "pattern": "*.prod.bd/*",
+                    "zone_name": "prod.bd"
+                }
+            ]
         }
-    ]
+    }
 }

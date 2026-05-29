@@ -1,0 +1,87 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+const lastUpdated = "March 1, 2026";
+---
+
+<Layout title="Privacy Policy - prod.bd" description="Privacy Policy for the prod.bd tunnel service.">
+  <Header />
+  <main class="pt-24 pb-20">
+    <article class="max-w-3xl mx-auto px-6 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-10 [&_h2]:mb-3 [&_p]:text-gray-700 [&_p]:leading-relaxed [&_p]:mb-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-4 [&_ul]:text-gray-700 [&_li]:mb-1 [&_a]:text-green-600 [&_a]:underline">
+      <h1 class="text-3xl sm:text-4xl font-bold mb-2">Privacy Policy</h1>
+      <p class="text-sm text-gray-400 mb-10">Effective date: {lastUpdated}</p>
+
+      <p>This Privacy Policy describes how Prod.bd ("we", "us", "our") collects, uses, and protects information in connection with the prod.bd service ("Service"). By using the Service, you consent to the practices described in this policy.</p>
+
+      <h2>1. Information We Collect</h2>
+      <p>We collect the minimum information necessary to provide and improve the Service:</p>
+      <ul>
+        <li><strong>Client Identifier</strong> — A locally generated unique identifier stored on your device, used to maintain deterministic subdomain assignments across sessions.</li>
+        <li><strong>Email Address</strong> — Collected only when you authenticate for paid plans or team features. Used for account management and service communications.</li>
+        <li><strong>Usage Metrics</strong> — Aggregate request counts and bandwidth consumption per billing period, used for quota enforcement and billing calculations.</li>
+        <li><strong>Analytics Data</strong> — We use Google Analytics on our website to collect anonymized usage statistics such as page views, referral sources, browser type, and approximate geographic location. This data helps us understand how visitors interact with our website and improve the Service.</li>
+      </ul>
+
+      <h2>2. Information We Do Not Collect</h2>
+      <p>We are committed to respecting the privacy of your development workflow:</p>
+      <ul>
+        <li>We do not inspect, log, intercept, or store the content of traffic transmitted through your tunnels.</li>
+        <li>We do not sell, rent, or share your personal information with third parties for their marketing purposes.</li>
+        <li>We do not build advertising profiles based on your usage of the Service.</li>
+      </ul>
+
+      <h2>3. How We Use Your Information</h2>
+      <p>Information collected is used solely for the following purposes:</p>
+      <ul>
+        <li>Subdomain allocation, tunnel routing, and session management</li>
+        <li>Usage quota enforcement, billing, and overage calculations</li>
+        <li>Account authentication, authorization, and team management</li>
+        <li>Service-related communications, including billing notifications and security alerts</li>
+        <li>Website analytics and service improvement</li>
+      </ul>
+
+      <h2>4. Cookies and Tracking Technologies</h2>
+      <p>Our website uses Google Analytics, which sets cookies on your browser to collect anonymized usage data. These cookies do not contain personally identifiable information. You may opt out of Google Analytics by installing the <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener">Google Analytics Opt-out Browser Add-on</a> or by configuring your browser to reject cookies.</p>
+      <p>The tunnel service itself (*.prod.bd subdomains) does not set any cookies.</p>
+
+      <h2>5. Data Storage and Security</h2>
+      <p>Your data is stored on Cloudflare's global infrastructure, utilizing D1 databases and Durable Objects. We rely on Cloudflare's enterprise-grade security measures, including encryption at rest and in transit, to protect your data. While we implement commercially reasonable safeguards, no method of electronic storage or transmission is completely secure, and we cannot guarantee absolute security.</p>
+
+      <h2>6. Data Retention</h2>
+      <p>We retain account data for the duration of your active account. Usage metrics are retained on a rolling monthly basis and automatically purged after the billing cycle concludes. Authentication tokens are subject to expiration and are periodically cleaned up. You may request deletion of your account and associated data at any time by contacting us.</p>
+
+      <h2>7. Third-Party Services</h2>
+      <p>The Service relies on the following third-party providers:</p>
+      <ul>
+        <li><strong>Cloudflare</strong> — Infrastructure, DNS, and edge network. All tunnel traffic passes through Cloudflare's network. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">Cloudflare's Privacy Policy</a>.</li>
+        <li><strong>Google Analytics</strong> — Website analytics. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's Privacy Policy</a>.</li>
+      </ul>
+
+      <h2>8. Your Rights</h2>
+      <p>Depending on your jurisdiction, you may have the right to:</p>
+      <ul>
+        <li>Access the personal information we hold about you</li>
+        <li>Request correction of inaccurate information</li>
+        <li>Request deletion of your personal information</li>
+        <li>Object to or restrict certain processing of your data</li>
+        <li>Withdraw consent where processing is based on consent</li>
+      </ul>
+      <p>To exercise any of these rights, please contact us at <a href="mailto:support@prod.bd">support@prod.bd</a>. We will respond to your request within a reasonable timeframe.</p>
+
+      <h2>9. Children's Privacy</h2>
+      <p>The Service is not directed to individuals under the age of 16. We do not knowingly collect personal information from children. If we become aware that we have collected information from a child under 16, we will take steps to delete that information promptly.</p>
+
+      <h2>10. International Data Transfers</h2>
+      <p>Your data may be processed and stored in locations outside your country of residence through Cloudflare's global network. By using the Service, you consent to the transfer of your information to these locations.</p>
+
+      <h2>11. Changes to This Policy</h2>
+      <p>We may update this Privacy Policy from time to time. Material changes will be reflected by updating the effective date at the top of this page. We encourage you to review this policy periodically. Your continued use of the Service after any changes constitutes acceptance of the updated policy.</p>
+
+      <h2>12. Contact</h2>
+      <p>For questions, concerns, or requests regarding this Privacy Policy, please contact us at <a href="mailto:support@prod.bd">support@prod.bd</a>.</p>
+    </article>
+  </main>
+  <Footer />
+</Layout>

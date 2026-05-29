@@ -49,7 +49,7 @@ func HandleRequest(req types.TunnelRequest, upstream string) types.TunnelRespons
 		canonical := http.CanonicalHeaderKey(k)
 		// If we forward Accept-Encoding, Go passes compressed bytes through
 		// raw, but Cloudflare's edge may strip Content-Encoding on the way
-		// back — leaving the browser with undecoded gzip bytes.
+		// back - leaving the browser with undecoded gzip bytes.
 		if canonical == "Accept-Encoding" {
 			continue
 		}

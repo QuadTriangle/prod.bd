@@ -1,7 +1,7 @@
 // Per-subdomain rate limiting middleware
 // Fixed-window counter in module-level memory. Resets on worker restart.
 
-import { registerMiddleware } from "../plugins";
+import { registerMiddleware } from "./plugins";
 
 const windows = new Map<string, { count: number; reset: number }>();
 

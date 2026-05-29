@@ -1,10 +1,10 @@
-// Request buffer — queues incoming requests when the CLI tunnel is briefly disconnected.
+// Request buffer - queues incoming requests when the CLI tunnel is briefly disconnected.
 // Drains automatically when the tunnel reconnects.
 
 export class RequestBuffer {
     private queue: { request: Request; resolve: (resp: Response) => void }[] = [];
     private maxSize = 50;
-    private timeoutMs = 10_000;
+    private timeoutMs = 5_000;
 
     enqueue(request: Request): Promise<Response> {
         if (this.queue.length >= this.maxSize) {
