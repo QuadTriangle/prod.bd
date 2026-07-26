@@ -57,6 +57,9 @@ export function deliverFrameToVisitor(header: WSFrameHeader, body: Uint8Array, v
     if (header.isText) {
         visitor.send(new TextDecoder().decode(body));
     } else {
-        visitor.send(body.buffer as ArrayBuffer);
+        // body is a view into the binproto frame buffer; body.buffer is the WHOLE frame
+        // (len prefix + JSON header + body). .slice() copies out just the body bytes —
+        // without it, binary WS frames arrive corrupted (e.g. VNC/RFB -> Code 1006).
+        visitor.send(body.slice().buffer);
     }
 }
